@@ -9,31 +9,7 @@ import torch
 
 BATCH_SIZE = 200
 NUM_CLASSES = 10
-def attachPropertyLayers(model: MnistClassifier, true_class_index: int):
-  # allows to do y>y1,y2,y3... which is 'is it true that the output y corresponds to the true class with maximum response?'
-  n_classes = model.y.get_shape().as_list()[1]
-  cases = []
-  for i in range(n_classes):
-    if (i == true_class_index):
-      continue
-    case = [0] * n_classes  # list of zeroes
-    case[true_class_index] = 1  # sets the property to 1
-    case[i] = -1
-    cases.append(case)
-  layers = []
-  with model.graph.as_default():
-    weights = np.array(cases)
-    weightTensor=tf.constant(np.rot90(weights), name='propertyLayer', dtype=tf.float32)
-    all_properties_together = HiddenLayer(n_classes, n_classes-1,weightTensor=weightTensor,use_bias=False)#initialise the layer with constant weights
-    # for case in cases:
-    #   property_layer = PropertyLayer(case, model.y)
-    #   layers.append(property_layer.output)
-    # all_properties_together = tf.concat(layers, axis=0)
-    layers.append(all_properties_together)
-    forward = all_properties_together.forward(model.y)
-    min_layer = tf.reduce_min(forward,axis=1)
-    layers.append(min_layer)
-  return min_layer, layers
+
 
 def main():
     print("start")
