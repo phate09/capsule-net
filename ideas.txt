@@ -1,0 +1,6 @@
+LQR as verification?
+dynamics are linear (matrix multiplication)
+cost is difference from correct class ^2
+time steps are layers
+
+is optimal?
