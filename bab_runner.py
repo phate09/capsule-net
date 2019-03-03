@@ -1,3 +1,4 @@
+from plnn.branch_and_bound import CandidateDomain, bab
 from plnn.mini_net import Net
 import torch
 import torch.nn as nn
@@ -57,7 +58,19 @@ domain = domain_raw.view(2, batch_size, -1)
 print(domain.size())
 
 # test the method
-verification_model.get_upper_bound(domain, 7)
+#verification_model.get_upper_bound(domain, 7)
 
 # test the method
-verification_model.get_lower_bound(domain, 7)
+#verification_model.get_lower_bound(domain, 7)
+
+epsilon = 1e-2
+decision_bound = 0
+min_lb, min_ub, ub_point = bab(verification_model, domain, 7, epsilon, decision_bound)
+
+if min_lb >= 0:
+    print("UNSAT")
+elif min_ub < 0:
+    print("SAT")
+    print(ub_point)
+else:
+    print("Unknown")

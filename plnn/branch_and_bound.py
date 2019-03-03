@@ -9,6 +9,7 @@ class CandidateDomain:
     Comparison between its elements is based on the values of the lower bounds
     that are estimated for it.
     '''
+
     def __init__(self, lb=-float('inf'), ub=float('inf'), dm=None):
         self.lower_bound = lb
         self.upper_bound = ub
@@ -25,8 +26,8 @@ class CandidateDomain:
 
     def __repr__(self):
         string = f"[LB: {self.lower_bound:.4e}\t" \
-                 f" UB:  {self.upper_bound:.4e}\n" \
-                 f" Domain: {self.domain}]"
+            f" UB:  {self.upper_bound:.4e}\n" \
+            f" Domain: {self.domain}]"
         return string
 
     def area(self):
@@ -38,7 +39,7 @@ class CandidateDomain:
         return dom_area
 
 
-def bab(net, domain, eps=1e-3, decision_bound=None):
+def bab(net, domain, true_class_index, eps=1e-3, decision_bound=None):
     '''
     Uses branch and bound algorithm to evaluate the global minimum
     of a given neural network.
@@ -54,8 +55,8 @@ def bab(net, domain, eps=1e-3, decision_bound=None):
                       as well as the point where the upper bound is achieved
     '''
 
-    global_ub_point, global_ub = net.get_upper_bound(domain)
-    global_lb = net.get_lower_bound(domain)
+    global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
+    global_lb = net.get_lower_bound(domain, true_class_index)
 
     nb_input_var = len(domain)
     normed_domain = torch.stack((torch.zeros(nb_input_var),
@@ -76,7 +77,7 @@ def bab(net, domain, eps=1e-3, decision_bound=None):
     while global_ub - global_lb > eps:
         # Pick a domain to branch over and remove that from our current list of
         # domains. Also potentially perform some pruning on the way.
-        selected_candidate_domain = pick_out(domains, global_ub-eps)
+        selected_candidate_domain = pick_out(domains, global_ub - eps)
 
         # Genearate new, smaller (normalized) domains using box split.
         ndoms = box_split(selected_candidate_domain.domain)
@@ -84,8 +85,8 @@ def bab(net, domain, eps=1e-3, decision_bound=None):
         for ndom_i in ndoms:
             # Find the upper and lower bounds on the minimum in dom_i
             dom_i = domain_lb + domain_width * ndom_i
-            dom_ub_point, dom_ub = net.get_upper_bound(dom_i)
-            dom_lb = net.get_lower_bound(dom_i)
+            dom_ub_point, dom_ub = net.get_upper_bound(dom_i, true_class_index)
+            dom_lb = net.get_lower_bound(dom_i, true_class_index)
 
             # Update the global upper if the new upper bound found is lower.
             if dom_ub < global_ub:
@@ -107,7 +108,7 @@ def bab(net, domain, eps=1e-3, decision_bound=None):
         # reached a threshold, prune domains that we no longer need.
         if prune_counter >= 100 and len(domains) >= 100:
             # Remove domains with dom_lb >= global_ub
-            domains = prune_domains(domains, global_ub-eps)
+            domains = prune_domains(domains, global_ub - eps)
             prune_counter = 0
 
             # Do a pass over all the remaining domains to evaluate how much of
@@ -183,7 +184,7 @@ def box_split(domain):
     dim = dim[0]
 
     # Now split over dimension dim:
-    half_length = edgelength/2
+    half_length = edgelength / 2
 
     # dom1: Upper bound in the 'dim'th dimension is now at halfway point.
     dom1 = domain.clone()
@@ -222,4 +223,4 @@ def print_remaining_domain(domains):
     remaining_area = 0
     for dom in domains:
         remaining_area += dom.area()
-    print(f'Remaining portion of the input space: {remaining_area*100:.8f}%')
+    print(f'Remaining portion of the input space: {remaining_area * 100:.8f}%')
