@@ -48,27 +48,25 @@ class VerificationNetwork(nn.Module):
     def get_upper_bound(self, domain, true_class_index):
         # we try get_upper_bound
         nb_samples = 1024
-        nb_inp = domain.size()[2:]  # get last dimensions
+        nb_inp = domain.size()[:-1]  # get last dimensions
         print(nb_inp)
         # Not a great way of sampling but this will be good enough
         # We want to get rows that are >= 0
-        rand_samples_size = [self.batch_size, nb_samples] + list(nb_inp)
+        rand_samples_size = list(nb_inp) + [nb_samples]
         rand_samples = torch.zeros(rand_samples_size).to(device)
         rand_samples.uniform_(0, 1)
-        domain_lb = domain.select(0, 0).contiguous()
-        domain_ub = domain.select(0, 1).contiguous()
+        domain_lb = domain.select(1, 0).contiguous()
+        domain_ub = domain.select(1, 1).contiguous()
         domain_width = domain_ub - domain_lb
-        domain_lb = domain_lb.view([self.batch_size, 1] + list(nb_inp)).expand(
-            [self.batch_size, nb_samples] + list(nb_inp))  # expand the initial point for the number of examples
-        domain_width = domain_width.view([self.batch_size, 1] + list(nb_inp)).expand(
-            [self.batch_size, nb_samples] + list(nb_inp))  # expand the width for the number of examples
+        domain_lb = domain_lb.view(list(nb_inp) + [1]).expand(list(nb_inp) + [nb_samples])  # expand the initial point for the number of examples
+        domain_width = domain_width.view(list(nb_inp) + [1]).expand(list(nb_inp) + [nb_samples])  # expand the width for the number of examples
         inps = domain_lb + domain_width * rand_samples
         # now flatten the first dimension into the second
-        flattened_size = [inps.size(0) * inps.size(1)] + list(inps.size()[2:])
+        # flattened_size = [inps.size(0) * inps.size(1)] + list(inps.size()[2:])
         # print(flattened_size)
         # rearrange the tensor so that is consumable by the model
         print(self.input_size)
-        examples_data_size = [flattened_size[0]] + list(self.input_size[1:])  # the expected dimension of the example tensor
+        examples_data_size = [nb_samples] + list(self.input_size[1:])  # the expected dimension of the example tensor
         # print(examples_data_size)
         var_inps = inps.view(examples_data_size)
         if var_inps.size() != self.input_size: print(f"var_inps != input_size , {var_inps}/{self.input_size}")  # should match input_size
@@ -77,17 +75,17 @@ class VerificationNetwork(nn.Module):
         print(outs[0])  # those two should be very similar but different because they belong to two different examples
         print(outs[1])
         print(outs.size())
-        outs_true_class_resized = outs.view(self.batch_size, nb_samples)
+        outs_true_class_resized = outs.view(nb_samples)
         print(outs_true_class_resized.size())  # resize outputs so that they each row is a different element of each batch
-        upper_bound, idx = torch.min(outs_true_class_resized, dim=1)  # this returns the distance of the network output from the given class, it selects the class which is furthest from the current one
+        upper_bound, idx = torch.min(outs_true_class_resized, dim=0)  # this returns the distance of the network output from the given class, it selects the class which is furthest from the current one
         print(f'idx size {idx.size()}')
         print(f'inps size {inps.size()}')
-        print(idx[0])
+        print(idx.item())
         # upper_bound = upper_bound[0]
         unsqueezed_idx = idx.view(-1, 1)
-        print(f'single size {inps[0][unsqueezed_idx[0][0]][:].size()}')
-        ub_point = torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
-        return ub_point, upper_bound
+        print(f'single size {inps.select(1, idx.item()).size()}')
+        ub_point = inps.select(1, idx.item()).view(var_inps.size()[1:])  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
+        return ub_point, upper_bound.item()
 
     def get_lower_bound(self, domain, true_class_index):
         '''
@@ -96,9 +94,9 @@ class VerificationNetwork(nn.Module):
         '''
         # now try to do the lower bound
         import gurobipy as grb
-        batch_size = domain.size()[1]
+        batch_size = 1  # domain.size()[1]
         for index in range(batch_size):
-            input_domain = domain.select(1, index)  # we use a single domain, not ready for parallelisation yet
+            input_domain = domain  # .select(1, index)  # we use a single domain, not ready for parallelisation yet
             print(f'input_domain.size()={input_domain.size()}')
             lower_bounds = []
             upper_bounds = []
@@ -114,9 +112,9 @@ class VerificationNetwork(nn.Module):
             inp_lb = []
             inp_ub = []
             inp_gurobi_vars = []
-            for dim in range(input_domain.size()[1]):
-                ub = input_domain[1][dim]  # check this value, it can be messed up
-                lb = input_domain[0][dim]
+            for dim in range(input_domain.size()[0]):
+                ub = input_domain[dim][1]  # check this value, it can be messed up
+                lb = input_domain[dim][0]
                 #     print(f'ub={ub} lb={lb}')
                 assert ub > lb, "ub should be greater that lb"
                 #     print(f'ub={ub} lb={lb}')
@@ -309,8 +307,8 @@ class VerificationNetwork(nn.Module):
             # input
             # is it just to be sure?
             for var_idx, inp_var in enumerate(gurobi_vars[0]):
-                inp_var.lb = domain[0, 0, var_idx]
-                inp_var.ub = domain[1, 0, var_idx]
+                inp_var.lb = domain[var_idx, 0]
+                inp_var.ub = domain[var_idx, 1]
 
             # We will make sure that the objective function is properly set up
             gurobi_model.setObjective(gurobi_vars[-1][0], grb.GRB.MINIMIZE)

@@ -13,7 +13,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "c
 
 
 def generate_domain(input_tensor, eps_size):
-    return torch.stack((input_tensor - eps_size, input_tensor + eps_size))
+    return torch.stack((input_tensor - eps_size, input_tensor + eps_size), -1)
 
 
 model = Net()
@@ -54,14 +54,14 @@ print(f'targets={target}')
 # print(f'test_out[0]={test_out[0]}')
 test_out = model(data.view(-1, 784))
 print(test_out.size())
-domain = domain_raw.view(2, batch_size, -1)
+domain = domain_raw.view(-1, 2)
 print(domain.size())
 
 # test the method
-#verification_model.get_upper_bound(domain, 7)
+# verification_model.get_upper_bound(domain, 7)
 
 # test the method
-#verification_model.get_lower_bound(domain, 7)
+# verification_model.get_lower_bound(domain, 7)
 
 epsilon = 1e-2
 decision_bound = 0

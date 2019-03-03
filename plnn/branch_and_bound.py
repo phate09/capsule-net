@@ -2,6 +2,9 @@ import bisect
 import math
 import torch
 
+use_cuda = True
+device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
+
 
 class CandidateDomain:
     '''
@@ -39,7 +42,7 @@ class CandidateDomain:
         return dom_area
 
 
-def bab(net, domain, true_class_index, eps=1e-3, decision_bound=None):
+def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=None):
     '''
     Uses branch and bound algorithm to evaluate the global minimum
     of a given neural network.
@@ -58,7 +61,7 @@ def bab(net, domain, true_class_index, eps=1e-3, decision_bound=None):
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
     global_lb = net.get_lower_bound(domain, true_class_index)
 
-    nb_input_var = len(domain)
+    nb_input_var = domain.size()[0]
     normed_domain = torch.stack((torch.zeros(nb_input_var),
                                  torch.ones(nb_input_var)), 1)
     domain_lb = domain.select(1, 0)
@@ -180,18 +183,18 @@ def box_split(domain):
     edgelength, dim = torch.max(diff, 0)
 
     # Unwrap from tensor containers
-    edgelength = edgelength[0]
-    dim = dim[0]
+    edgelength = edgelength.item()
+    dim = dim.item()
 
     # Now split over dimension dim:
     half_length = edgelength / 2
 
     # dom1: Upper bound in the 'dim'th dimension is now at halfway point.
-    dom1 = domain.clone()
+    dom1 = domain.clone().to(device)
     dom1[dim, 1] -= half_length
 
     # dom2: Lower bound in 'dim'th dimension is now at haflway point.
-    dom2 = domain.clone()
+    dom2 = domain.clone().to(device)
     dom2[dim, 0] += half_length
 
     sub_domains = [dom1, dom2]
