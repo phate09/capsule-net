@@ -60,7 +60,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
 
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
     global_lb = net.get_lower_bound(domain, true_class_index)
-
+    assert global_lb < global_ub, "lb must be lower than ub"
     nb_input_var = domain.size()[0]
     normed_domain = torch.stack((torch.zeros(nb_input_var),
                                  torch.ones(nb_input_var)), 1)
