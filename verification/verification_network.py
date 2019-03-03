@@ -2,8 +2,10 @@ import numpy as np
 import torch
 from torch import nn as nn
 
-from bab_runner import device
 from plnn.mini_net import Net
+
+use_cuda = True
+device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
 
 
 class VerificationNetwork(nn.Module):
@@ -16,8 +18,8 @@ class VerificationNetwork(nn.Module):
     '''need to  repeat this method for each class so that it describes the distance between the corresponding class 
     and the closest other class'''
 
-    def attach_property_layers(self, model: Net, true_class_index: int):
-        n_classes = model.layers[-1].out_features
+    def attach_property_layers(self, true_class_index: int):
+        n_classes = self.base_network.layers[-1].out_features
         cases = []
         for i in range(n_classes):
             if i == true_class_index:
@@ -34,7 +36,7 @@ class VerificationNetwork(nn.Module):
 
     def forward_verif(self, x, true_class_index):
         x = self.base_network(x)
-        property_layer = self.attach_property_layers(self.base_network, true_class_index)
+        property_layer = self.attach_property_layers(true_class_index)
         result = torch.matmul(x, torch.t(property_layer))
         return torch.min(result, dim=1, keepdim=True)[0]
 
@@ -43,7 +45,7 @@ class VerificationNetwork(nn.Module):
         x = self.base_network(x)
         return x
 
-    def get_upper_bound(self, domain, model, true_class_index):
+    def get_upper_bound(self, domain, true_class_index):
         # we try get_upper_bound
         nb_samples = 1024
         nb_inp = domain.size()[2:]  # get last dimensions
@@ -65,12 +67,12 @@ class VerificationNetwork(nn.Module):
         flattened_size = [inps.size(0) * inps.size(1)] + list(inps.size()[2:])
         # print(flattened_size)
         # rearrange the tensor so that is consumable by the model
-        print(self.data_size)
-        examples_data_size = [flattened_size[0]] + list(self.data_size[1:])  # the expected dimension of the example tensor
+        print(self.input_size)
+        examples_data_size = [flattened_size[0]] + list(self.input_size[1:])  # the expected dimension of the example tensor
         # print(examples_data_size)
         var_inps = inps.view(examples_data_size)
-        if var_inps.size() != self.data_size: print(f"var_inps != data_size , {var_inps}/{self.data_size}")  # should match data_size
-        outs = model.forward_verif(var_inps.view(-1, 784), true_class_index)  # gets the input for the values
+        if var_inps.size() != self.input_size: print(f"var_inps != input_size , {var_inps}/{self.input_size}")  # should match input_size
+        outs = self.forward_verif(var_inps.view(-1, 784), true_class_index)  # gets the input for the values
         print(outs.size())
         print(outs[0])  # those two should be very similar but different because they belong to two different examples
         print(outs[1])
@@ -87,7 +89,7 @@ class VerificationNetwork(nn.Module):
         ub_point = torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
         return ub_point, upper_bound
 
-    def get_lower_bound(self, domain, model):
+    def get_lower_bound(self, domain, true_class_index):
         '''
         input_domain: Tensor containing in each row the lower and upper bound
                       for the corresponding dimension
@@ -135,9 +137,11 @@ class VerificationNetwork(nn.Module):
 
             # print(model.layers[0])
             # print(range(0))
-
+            layers = []
+            layers.extend(self.base_network.layers)
+            layers.append(self.attach_property_layers(true_class_index))
             layer_idx = 1
-            for layer in model.layers:
+            for layer in layers:
                 print(f'layer_idx={layer_idx}')
                 # layer = model.layers[0]
                 new_layer_lb = []
@@ -158,6 +162,53 @@ class VerificationNetwork(nn.Module):
 
                         for prev_neuron_idx in range(layer.weight.size(1)):
                             coeff = layer.weight.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
+                            #         print(f'coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}')
+                            #                 assert coeff*lower_bounds[-1][prev_neuron_idx]!=coeff*upper_bounds[-1][prev_neuron_idx], f"coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}"
+                            if coeff >= 0:
+                                ub = ub + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the ub
+                                lb = lb + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the lb
+                            else:  # inverted
+                                ub = ub + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the ub
+                                lb = lb + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the lb
+                            #         print(f'ub={ub} lb={lb}')
+                            #                     assert ub!=lb
+                            lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][prev_neuron_idx]  # multiplies the unknown by the coefficient
+                        #         print(lin_expr)
+                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
+                                                vtype=grb.GRB.CONTINUOUS,
+                                                name=f'lay{layer_idx}_{neuron_idx}')
+                        gurobi_model.addConstr(v == lin_expr)
+                        gurobi_model.update()
+                        #     print(f'v={v}')
+                        gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+                        gurobi_model.optimize()
+                        #          print(f'gurobi status {gurobi_model.status}')
+                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                        # We have computed a lower bound
+                        lb = v.X
+                        v.lb = lb
+
+                        # Let's now compute an upper bound
+                        gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
+                        gurobi_model.update()
+                        gurobi_model.reset()
+                        gurobi_model.optimize()
+                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                        ub = v.X
+                        v.ub = ub
+
+                        new_layer_lb.append(lb)
+                        new_layer_ub.append(ub)
+                        new_layer_gurobi_vars.append(v)
+                elif type(layer) is torch.Tensor:
+                    print(f'Tensor')
+                    for neuron_idx in range(layer.size(0)):
+                        ub = 0
+                        lb = 0
+                        lin_expr = 0
+
+                        for prev_neuron_idx in range(layer.size(1)):
+                            coeff = layer.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
                             #         print(f'coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}')
                             #                 assert coeff*lower_bounds[-1][prev_neuron_idx]!=coeff*upper_bounds[-1][prev_neuron_idx], f"coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}"
                             if coeff >= 0:

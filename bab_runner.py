@@ -17,7 +17,6 @@ def generate_domain(input_tensor, eps_size):
 
 model = Net()
 model.load_state_dict(torch.load('save/mini_net.pt'))
-model
 dataset = MNIST('./data', train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),
@@ -58,7 +57,7 @@ domain = domain_raw.view(2, batch_size, -1)
 print(domain.size())
 
 # test the method
-verification_model.get_upper_bound(domain, verification_model, 7)
+verification_model.get_upper_bound(domain, 7)
 
 # test the method
-verification_model.get_lower_bound(domain, verification_model, 7)
+verification_model.get_lower_bound(domain, 7)
