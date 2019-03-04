@@ -38,32 +38,16 @@ data, target = next(iter(test_loader))
 data = data.to(device)
 target = target.to(device)
 print(f'data size:{data.size()}')
-# print(data[0])
-# create the domain
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
-# single_true_class = 7
 verification_model = VerificationNetwork(model, batch_size, data_size)
 verification_model.to(device)
-# test_out = verification_model(data.view(-1, 784))
-# print(f'test_out={test_out}')
-# print(f'targets={target}')
-# print(f'test_out[0]={test_out[0]}')
-# test_out = model(data.view(-1, 784))
-# print(test_out.size())
-# domain = domain_raw.view(-1, 2)
-# print(domain.size())
-
-# test the method
-# verification_model.get_upper_bound(domain, 7)
-
-# test the method
-# verification_model.get_lower_bound(domain, 7)
 
 epsilon = 1e-2
 decision_bound = 0
 successes = 0
 attempts = 0
+last_result = ""
 for data, target in iter(test_loader):
     domain_raw = generate_domain(data, 0.001)
     domain = domain_raw.view(-1, 2).to(device)
