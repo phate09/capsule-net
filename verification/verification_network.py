@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn as nn
+import gurobipy as grb
 
 from plnn.mini_net import Net
 
@@ -93,7 +94,7 @@ class VerificationNetwork(nn.Module):
                       for the corresponding dimension
         '''
         # now try to do the lower bound
-        import gurobipy as grb
+
         batch_size = 1  # domain.size()[1]
         for index in range(batch_size):
             input_domain = domain  # .select(1, index)  # we use a single domain, not ready for parallelisation yet
@@ -129,12 +130,6 @@ class VerificationNetwork(nn.Module):
             lower_bounds.append(inp_lb)
             upper_bounds.append(inp_ub)
             gurobi_vars.append(inp_gurobi_vars)
-
-            # print(lower_bounds[0][0])
-            # print(upper_bounds[0][0])
-
-            # print(model.layers[0])
-            # print(range(0))
             layers = []
             layers.extend(self.base_network.layers)
             layers.append(self.attach_property_layers(true_class_index))
@@ -147,104 +142,10 @@ class VerificationNetwork(nn.Module):
                 new_layer_gurobi_vars = []
                 if type(layer) is nn.Linear:
                     # print(f'Linear')
-                    for neuron_idx in range(layer.weight.size(0)):
-                        if (layer.bias is None):
-                            ub = 0
-                            lb = 0
-                            lin_expr = 0
-                        else:
-                            ub = layer.bias.data[neuron_idx]
-                            lb = layer.bias.data[neuron_idx]
-                            lin_expr = layer.bias.data[neuron_idx].item()  # adds the bias to the linear expression
-                        #     print(f'bias_ub={ub} bias_lb={lb}')
-
-                        for prev_neuron_idx in range(layer.weight.size(1)):
-                            coeff = layer.weight.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
-                            #         print(f'coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}')
-                            #                 assert coeff*lower_bounds[-1][prev_neuron_idx]!=coeff*upper_bounds[-1][prev_neuron_idx], f"coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}"
-                            if coeff >= 0:
-                                ub = ub + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            else:  # inverted
-                                ub = ub + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            #         print(f'ub={ub} lb={lb}')
-                            #                     assert ub!=lb
-                            lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][prev_neuron_idx]  # multiplies the unknown by the coefficient
-                        #         print(lin_expr)
-                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
-                                                vtype=grb.GRB.CONTINUOUS,
-                                                name=f'lay{layer_idx}_{neuron_idx}')
-                        gurobi_model.addConstr(v == lin_expr)
-                        gurobi_model.update()
-                        #     print(f'v={v}')
-                        gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
-                        gurobi_model.optimize()
-                        #          print(f'gurobi status {gurobi_model.status}')
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        # We have computed a lower bound
-                        lb = v.X
-                        v.lb = lb
-
-                        # Let's now compute an upper bound
-                        gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
-                        gurobi_model.update()
-                        gurobi_model.reset()
-                        gurobi_model.optimize()
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        ub = v.X
-                        v.ub = ub
-
-                        new_layer_lb.append(lb)
-                        new_layer_ub.append(ub)
-                        new_layer_gurobi_vars.append(v)
+                    self.linear_layer(gurobi_model, gurobi_vars, layer.weight, layer.bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds)
                 elif type(layer) is torch.Tensor:
                     # print(f'Tensor')
-                    for neuron_idx in range(layer.size(0)):
-                        ub = 0
-                        lb = 0
-                        lin_expr = 0
-
-                        for prev_neuron_idx in range(layer.size(1)):
-                            coeff = layer.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
-                            #         print(f'coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}')
-                            #                 assert coeff*lower_bounds[-1][prev_neuron_idx]!=coeff*upper_bounds[-1][prev_neuron_idx], f"coeff={coeff} upper={coeff*upper_bounds[-1][prev_neuron_idx]} lower={coeff*lower_bounds[-1][prev_neuron_idx]}"
-                            if coeff >= 0:
-                                ub = ub + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            else:  # inverted
-                                ub = ub + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            #         print(f'ub={ub} lb={lb}')
-                            #                     assert ub!=lb
-                            lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][prev_neuron_idx]  # multiplies the unknown by the coefficient
-                        #         print(lin_expr)
-                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
-                                                vtype=grb.GRB.CONTINUOUS,
-                                                name=f'lay{layer_idx}_{neuron_idx}')
-                        gurobi_model.addConstr(v == lin_expr)
-                        gurobi_model.update()
-                        #     print(f'v={v}')
-                        gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
-                        gurobi_model.optimize()
-                        #          print(f'gurobi status {gurobi_model.status}')
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        # We have computed a lower bound
-                        lb = v.X
-                        v.lb = lb
-
-                        # Let's now compute an upper bound
-                        gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
-                        gurobi_model.update()
-                        gurobi_model.reset()
-                        gurobi_model.optimize()
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        ub = v.X
-                        v.ub = ub
-
-                        new_layer_lb.append(lb)
-                        new_layer_ub.append(ub)
-                        new_layer_gurobi_vars.append(v)
+                    self.linear_layer(gurobi_model, gurobi_vars, layer, None, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds)
                 elif type(layer) == nn.ReLU:
                     # print('Relu')
                     for neuron_idx, pre_var in enumerate(gurobi_vars[-1]):
@@ -322,3 +223,54 @@ class VerificationNetwork(nn.Module):
             # print(f'Result={gurobi_vars[-1]}')
             # print(f'Result -1={gurobi_vars[-2]}')
             return gurobi_vars[-1][0].X
+
+    def linear_layer(self, gurobi_model, gurobi_vars, weight, bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds):
+        for neuron_idx in range(weight.size(0)):
+            if (bias is None):
+                ub = 0
+                lb = 0
+                lin_expr = 0
+            else:
+                ub = bias.data[neuron_idx]
+                lb = bias.data[neuron_idx]
+                lin_expr = bias.data[neuron_idx].item()  # adds the bias to the linear expression
+            #     print(f'bias_ub={ub} bias_lb={lb}')
+
+            for prev_neuron_idx in range(weight.size(1)):
+                coeff = weight.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
+                if coeff >= 0:
+                    ub = ub + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the ub
+                    lb = lb + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the lb
+                else:  # inverted
+                    ub = ub + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the ub
+                    lb = lb + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the lb
+                #         print(f'ub={ub} lb={lb}')
+                #                     assert ub!=lb
+                lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][prev_neuron_idx]  # multiplies the unknown by the coefficient
+            #         print(lin_expr)
+            v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
+                                    vtype=grb.GRB.CONTINUOUS,
+                                    name=f'lay{layer_idx}_{neuron_idx}')
+            gurobi_model.addConstr(v == lin_expr)
+            gurobi_model.update()
+            #     print(f'v={v}')
+            gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+            gurobi_model.optimize()
+            #          print(f'gurobi status {gurobi_model.status}')
+            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+            # We have computed a lower bound
+            lb = v.X
+            v.lb = lb
+
+            # Let's now compute an upper bound
+            gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
+            gurobi_model.update()
+            gurobi_model.reset()
+            gurobi_model.optimize()
+            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+            ub = v.X
+            v.ub = ub
+
+            new_layer_lb.append(lb)
+            new_layer_ub.append(ub)
+            new_layer_gurobi_vars.append(v)
