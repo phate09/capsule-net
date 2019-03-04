@@ -42,20 +42,17 @@ print(f'data size:{data.size()}')
 # create the domain
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
-print(f'domain size:{domain_raw.size()}')
-print(model.layers[-1].out_features)
-print(f'True class={target}')
-single_true_class = 7
+# single_true_class = 7
 verification_model = VerificationNetwork(model, batch_size, data_size)
 verification_model.to(device)
-test_out = verification_model(data.view(-1, 784))
-print(f'test_out={test_out}')
-print(f'targets={target}')
+# test_out = verification_model(data.view(-1, 784))
+# print(f'test_out={test_out}')
+# print(f'targets={target}')
 # print(f'test_out[0]={test_out[0]}')
-test_out = model(data.view(-1, 784))
-print(test_out.size())
-domain = domain_raw.view(-1, 2)
-print(domain.size())
+# test_out = model(data.view(-1, 784))
+# print(test_out.size())
+# domain = domain_raw.view(-1, 2)
+# print(domain.size())
 
 # test the method
 # verification_model.get_upper_bound(domain, 7)
@@ -65,12 +62,20 @@ print(domain.size())
 
 epsilon = 1e-2
 decision_bound = 0
-min_lb, min_ub, ub_point = bab(verification_model, domain, 7, epsilon, decision_bound)
-
-if min_lb >= 0:
-    print("UNSAT")
-elif min_ub < 0:
-    print("SAT")
-    print(ub_point)
-else:
-    print("Unknown")
+successes = 0
+attempts = 0
+for data, target in iter(test_loader):
+    domain_raw = generate_domain(data, 0.001)
+    domain = domain_raw.view(-1, 2).to(device)
+    min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)
+    attempts += 1
+    if min_lb >= 0:
+        successes += 1
+        last_result = "UNSAT"
+    elif min_ub < 0:
+        last_result = "SAT"
+        # print(ub_point)
+    else:
+        print("Unknown")  # 18
+    print(f'\rRunning percentage: {successes / attempts:.02%}, {attempts}/{len(test_loader)}, last result:{last_result}', end="")
+print(f'Final percentage: {successes / attempts:.02%}')

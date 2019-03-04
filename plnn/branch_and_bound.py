@@ -60,7 +60,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
 
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
     global_lb = net.get_lower_bound(domain, true_class_index)
-    assert global_lb < global_ub, "lb must be lower than ub"
+    assert global_lb <= global_ub, "lb must be lower than ub"
     nb_input_var = domain.size()[0]
     normed_domain = torch.stack((torch.zeros(nb_input_var),
                                  torch.ones(nb_input_var)), 1)
@@ -90,7 +90,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
             dom_i = domain_lb + domain_width * ndom_i
             dom_ub_point, dom_ub = net.get_upper_bound(dom_i, true_class_index)
             dom_lb = net.get_lower_bound(dom_i, true_class_index)
-
+            assert dom_lb <= dom_ub, "lb must be lower than ub"
             # Update the global upper if the new upper bound found is lower.
             if dom_ub < global_ub:
                 global_ub = dom_ub
@@ -117,7 +117,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
             # Do a pass over all the remaining domains to evaluate how much of
             # the input is there left to prune
             # print_remaining_domain(domains)
-            print(f"Current: lb: {global_lb}\t ub: {global_ub}")
+            # print(f"Current: lb: {global_lb}\t ub: {global_ub}")
 
         # Update the global lower bound with a lower bound that belongs
         # to a domain in the updated list "domains" .

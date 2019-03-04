@@ -31,7 +31,7 @@ class VerificationNetwork(nn.Module):
         weights = np.array(cases)
         #         print(f'weight={weights}')
         weight_tensor = torch.from_numpy(weights).float().to(device)
-        print(f'final weightTensor size={weight_tensor.size()}')
+        # print(f'final weightTensor size={weight_tensor.size()}')
         return weight_tensor
 
     def forward_verif(self, x, true_class_index):
@@ -49,42 +49,42 @@ class VerificationNetwork(nn.Module):
         # we try get_upper_bound
         nb_samples = 1024
         nb_inp = domain.size()[:-1]  # get last dimensions
-        print(nb_inp)
+        # print(nb_inp)
         # Not a great way of sampling but this will be good enough
         # We want to get rows that are >= 0
-        rand_samples_size = list(nb_inp) + [nb_samples]
+        rand_samples_size = [nb_samples] + list(nb_inp)
         rand_samples = torch.zeros(rand_samples_size).to(device)
         rand_samples.uniform_(0, 1)
         domain_lb = domain.select(1, 0).contiguous()
         domain_ub = domain.select(1, 1).contiguous()
         domain_width = domain_ub - domain_lb
-        domain_lb = domain_lb.view(list(nb_inp) + [1]).expand(list(nb_inp) + [nb_samples])  # expand the initial point for the number of examples
-        domain_width = domain_width.view(list(nb_inp) + [1]).expand(list(nb_inp) + [nb_samples])  # expand the width for the number of examples
+        domain_lb = domain_lb.view([1] + list(nb_inp)).expand([nb_samples] + list(nb_inp))  # expand the initial point for the number of examples
+        domain_width = domain_width.view([1] + list(nb_inp)).expand([nb_samples] + list(nb_inp))  # expand the width for the number of examples
         inps = domain_lb + domain_width * rand_samples
         # now flatten the first dimension into the second
         # flattened_size = [inps.size(0) * inps.size(1)] + list(inps.size()[2:])
         # print(flattened_size)
         # rearrange the tensor so that is consumable by the model
-        print(self.input_size)
-        examples_data_size = [nb_samples] + list(self.input_size[1:])  # the expected dimension of the example tensor
+        # print(self.input_size)
+        # examples_data_size = [nb_samples] + list(self.input_size[1:])  # the expected dimension of the example tensor
         # print(examples_data_size)
-        var_inps = inps.view(examples_data_size)
-        if var_inps.size() != self.input_size: print(f"var_inps != input_size , {var_inps}/{self.input_size}")  # should match input_size
-        outs = self.forward_verif(var_inps.view(-1, 784), true_class_index)  # gets the input for the values
-        print(outs.size())
-        print(outs[0])  # those two should be very similar but different because they belong to two different examples
-        print(outs[1])
-        print(outs.size())
-        outs_true_class_resized = outs.view(nb_samples)
-        print(outs_true_class_resized.size())  # resize outputs so that they each row is a different element of each batch
+        # var_inps = inps.view(examples_data_size)
+        # if var_inps.size() != self.input_size: print(f"var_inps != input_size , {var_inps}/{self.input_size}")  # should match input_size
+        outs = self.forward_verif(inps, true_class_index)  # gets the input for the values
+        # print(outs.size())
+        # print(outs[0])  # those two should be very similar but different because they belong to two different examples
+        # print(outs[1])
+        # print(outs.size())
+        outs_true_class_resized = outs.squeeze(1)
+        # print(outs_true_class_resized.size())  # resize outputs so that they each row is a different element of each batch
         upper_bound, idx = torch.min(outs_true_class_resized, dim=0)  # this returns the distance of the network output from the given class, it selects the class which is furthest from the current one
-        print(f'idx size {idx.size()}')
-        print(f'inps size {inps.size()}')
-        print(idx.item())
+        # print(f'idx size {idx.size()}')
+        # print(f'inps size {inps.size()}')
+        # print(idx.item())
         # upper_bound = upper_bound[0]
-        unsqueezed_idx = idx.view(-1, 1)
-        print(f'single size {inps.select(1, idx.item()).size()}')
-        ub_point = inps.select(1, idx.item()).view(var_inps.size()[1:])  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
+        # unsqueezed_idx = idx.view(-1, 1)
+        # print(f'single size {inps.select(0, idx.item()).size()}')
+        ub_point = inps.select(0, idx.item())  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
         return ub_point, upper_bound.item()
 
     def get_lower_bound(self, domain, true_class_index):
@@ -97,7 +97,7 @@ class VerificationNetwork(nn.Module):
         batch_size = 1  # domain.size()[1]
         for index in range(batch_size):
             input_domain = domain  # .select(1, index)  # we use a single domain, not ready for parallelisation yet
-            print(f'input_domain.size()={input_domain.size()}')
+            # print(f'input_domain.size()={input_domain.size()}')
             lower_bounds = []
             upper_bounds = []
             gurobi_vars = []
@@ -140,13 +140,13 @@ class VerificationNetwork(nn.Module):
             layers.append(self.attach_property_layers(true_class_index))
             layer_idx = 1
             for layer in layers:
-                print(f'layer_idx={layer_idx}')
+                # print(f'layer_idx={layer_idx}')
                 # layer = model.layers[0]
                 new_layer_lb = []
                 new_layer_ub = []
                 new_layer_gurobi_vars = []
                 if type(layer) is nn.Linear:
-                    print(f'Linear')
+                    # print(f'Linear')
                     for neuron_idx in range(layer.weight.size(0)):
                         if (layer.bias is None):
                             ub = 0
@@ -199,7 +199,7 @@ class VerificationNetwork(nn.Module):
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
                 elif type(layer) is torch.Tensor:
-                    print(f'Tensor')
+                    # print(f'Tensor')
                     for neuron_idx in range(layer.size(0)):
                         ub = 0
                         lb = 0
@@ -246,7 +246,7 @@ class VerificationNetwork(nn.Module):
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
                 elif type(layer) == nn.ReLU:
-                    print('Relu')
+                    # print('Relu')
                     for neuron_idx, pre_var in enumerate(gurobi_vars[-1]):
                         pre_lb = lower_bounds[-1][neuron_idx]
                         pre_ub = upper_bounds[-1][neuron_idx]
@@ -312,13 +312,13 @@ class VerificationNetwork(nn.Module):
 
             # We will make sure that the objective function is properly set up
             gurobi_model.setObjective(gurobi_vars[-1][0], grb.GRB.MINIMIZE)
-            print(f'gurobi_vars[-1][0].size()={len(gurobi_vars[-1])}')
+            # print(f'gurobi_vars[-1][0].size()={len(gurobi_vars[-1])}')
             # We will now compute the requested lower bound
             gurobi_model.update()
             gurobi_model.optimize()
             assert gurobi_model.status == 2, "LP wasn't optimally solved"
-            print(f'gurobi status {gurobi_model.status}')
-            print(f'Result={gurobi_vars[-1][0].X}')
-            print(f'Result={gurobi_vars[-1]}')
-            print(f'Result -1={gurobi_vars[-2]}')
+            # print(f'gurobi status {gurobi_model.status}')
+            # print(f'Result={gurobi_vars[-1][0].X}')
+            # print(f'Result={gurobi_vars[-1]}')
+            # print(f'Result -1={gurobi_vars[-2]}')
             return gurobi_vars[-1][0].X
