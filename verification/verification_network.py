@@ -180,6 +180,29 @@ class VerificationNetwork(nn.Module):
                         new_layer_lb.append(lb)
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
+                elif type(layer) == nn.Conv2d:
+                    # Compute convolution
+                    # resultingNeurons = []
+                    # for i in range(0, num_output):#number of filters
+                    #     ysize = len(inputNeurons[0]) #rows
+                    #     xsize = len(inputNeurons[0][0]) #columns
+                    #     thisBlock = []
+                    #     for y in range(-1 * padding[1], ysize - kernel_size[1] + 1 + padding[1], stride[1]):
+                    #         thisLine = []
+                    #         for x in range(-1 * padding[0], xsize - kernel_size[0] + 1 + padding[0], stride[0]):
+                    #             thisLine.append(dataLineName + "X" + str(i) + "X" + str(x) + "X" + str(y))
+                    #             localInputs = []
+                    #             for c in range(0, num_input_channels):
+                    #                 for b in range(0, kernel_size[1]):
+                    #                     for a in range(0, kernel_size[0]):
+                    #                         if y + b >= 0 and y + b < len(inputNeurons[c]):
+                    #                             if x + a >= 0 and x + a < len(inputNeurons[c][y + b]):
+                    #                                 localInputs.append(str(unflattenedWeights[i][c][b][a]) + " " + inputNeurons[c][y + b][x + a])
+                    #             sys.stdout.write("Linear " + thisLine[-1] + " " + str(biasses[i]) + " " + " ".join(localInputs) + "\n")
+                    #         thisBlock.append(thisLine)
+                    #     resultingNeurons.append(thisBlock)
+                    pass
+
                 else:
                     raise NotImplementedError
                 lower_bounds.append(new_layer_lb)
@@ -226,7 +249,7 @@ class VerificationNetwork(nn.Module):
 
     def linear_layer(self, gurobi_model, gurobi_vars, weight, bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds):
         for neuron_idx in range(weight.size(0)):
-            if (bias is None):
+            if bias is None:
                 ub = 0
                 lb = 0
                 lin_expr = 0
