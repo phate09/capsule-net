@@ -180,6 +180,38 @@ class VerificationNetwork(nn.Module):
                         new_layer_lb.append(lb)
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
+                elif type(layer) == nn.MaxPool1d:
+                    assert layer.padding == 0, "Non supported Maxpool option"
+                    assert layer.dilation == 1, "Non supported MaxPool option"
+                    nb_pre = len(self.gurobi_vars[-1])
+                    window_size = layer.kernel_size
+                    stride = layer.stride
+
+                    pre_start_idx = 0
+                    pre_window_end = pre_start_idx + window_size
+
+                    while pre_window_end <= nb_pre:
+                        lb = max(lower_bounds[-1][pre_start_idx:pre_window_end])
+                        ub = max(upper_bounds[-1][pre_start_idx:pre_window_end])
+
+                        neuron_idx = pre_start_idx // stride
+
+                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0, vtype=grb.GRB.CONTINUOUS,
+                                              name=f'Maxpool{layer_idx}_{neuron_idx}')
+                        all_pre_var = 0
+                        for pre_var in gurobi_vars[-1][pre_start_idx:pre_window_end]:
+                            gurobi_model.addConstr(v >= pre_var)
+                            all_pre_var += pre_var
+                        all_lb = sum(lower_bounds[-1][pre_start_idx:pre_window_end])
+                        max_pre_lb = lb
+                        gurobi_model.addConstr(all_pre_var >= v + all_lb - max_pre_lb)
+
+                        pre_start_idx += stride
+                        pre_window_end = pre_start_idx + window_size
+
+                        new_layer_lb.append(lb)
+                        new_layer_ub.append(ub)
+                        new_layer_gurobi_vars.append(v)
                 elif type(layer) == nn.Conv2d:
                     # Compute convolution
                     # resultingNeurons = []
