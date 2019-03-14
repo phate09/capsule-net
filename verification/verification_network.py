@@ -3,6 +3,7 @@ import torch
 from torch import nn as nn
 import gurobipy as grb
 
+from plnn.flatten import Flatten
 from plnn.mini_net import Net
 
 use_cuda = True
@@ -56,8 +57,8 @@ class VerificationNetwork(nn.Module):
         rand_samples_size = [nb_samples] + list(nb_inp)
         rand_samples = torch.zeros(rand_samples_size).to(device)
         rand_samples.uniform_(0, 1)
-        domain_lb = domain.select(1, 0).contiguous()
-        domain_ub = domain.select(1, 1).contiguous()
+        domain_lb = domain.select(-1, 0).contiguous()
+        domain_ub = domain.select(-1, 1).contiguous()
         domain_width = domain_ub - domain_lb
         domain_lb = domain_lb.view([1] + list(nb_inp)).expand([nb_samples] + list(nb_inp))  # expand the initial point for the number of examples
         domain_width = domain_width.view([1] + list(nb_inp)).expand([nb_samples] + list(nb_inp))  # expand the width for the number of examples
@@ -212,8 +213,13 @@ class VerificationNetwork(nn.Module):
                         new_layer_lb.append(lb)
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
+                elif type(layer)==Flatten:
+                    pass
                 elif type(layer) == nn.Conv2d:
                     # Compute convolution
+                    window_size = layer.kernel_size
+                    stride = layer.stride
+                    nb_pre = len(self.gurobi_vars[-1])
                     # resultingNeurons = []
                     # for i in range(0, num_output):#number of filters
                     #     ysize = len(inputNeurons[0]) #rows
