@@ -50,7 +50,7 @@ attempts = 0
 last_result = ""
 for data, target in iter(test_loader):
     domain_raw = generate_domain(data, 0.001)
-    domain = domain_raw.squeeze(0).to(device)
+    domain = domain_raw.to(device)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)
     attempts += 1
     if min_lb >= 0:
