@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
+from plnn.flatten import Flatten
 
 
 class Net(nn.Module):
@@ -14,14 +15,16 @@ class Net(nn.Module):
         # self.conv2 = nn.Conv2d(20, 50, 5, 1)
         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
         # self.fc2 = nn.Linear(500, 10)
-        self.layers = [nn.Linear(784, 10),
-                       nn.ReLU(),
-                       nn.Linear(10, 10),
-                       ]
+        self.layers = [
+            Flatten(),
+            nn.Linear(784, 10),
+            nn.ReLU(),
+            nn.Linear(10, 10),
+        ]
         self.sequential = nn.Sequential(*self.layers)
 
     def forward(self, x):
-        x=x.view(-1,784)
+        # x = x.view(-1, 784)
         return F.log_softmax(self.sequential(x), dim=1)
         # x = F.relu(self.conv1(x))
         # x = F.max_pool2d(x, 2, 2)
@@ -34,7 +37,7 @@ class Net(nn.Module):
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
-    model.train()#train mode
+    model.train()  # train mode
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
@@ -50,7 +53,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
 
 
 def test(args, model, device, test_loader):
-    model.eval()#evaluation mode
+    model.eval()  # evaluation mode
     test_loss = 0
     correct = 0
     with torch.no_grad():

@@ -5,6 +5,7 @@ import gurobipy as grb
 import itertools
 from plnn.flatten import Flatten
 from plnn.mini_net import Net
+import time
 
 use_cuda = True
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
@@ -141,93 +142,184 @@ class VerificationNetwork(nn.Module):
                 # layer = model.layers[0]
 
                 if type(layer) is nn.Linear:
+                    previous_layer_size = np.array(gurobi_vars[-1].shape)
                     weight = layer.weight
                     bias = layer.bias
-                    for neuron_idx in range(weight.size(0)):
-                        if bias is None:
-                            ub = 0
-                            lb = 0
-                            lin_expr = 0
-                        else:
-                            ub = bias.data[neuron_idx]
-                            lb = bias.data[neuron_idx]
-                            lin_expr = bias.data[neuron_idx].item()  # adds the bias to the linear expression
+                    shape = np.array(weight.shape)
+                    # while len(shape) < 3:
+                    #     weight = weight.unsqueeze(0)
+                    #     bias = bias.unsqueeze(0)
+                    #     shape = np.array(weight.shape)
+                    old_layer_lb = lower_bounds[-1]
+                    old_layer_ub = upper_bounds[-1]
+                    old_layer_gurobi_vars = gurobi_vars[-1]
+                    while len(old_layer_lb.shape) < 2:
+                        old_layer_lb = np.expand_dims(old_layer_lb, axis=0)
+                        old_layer_ub = np.expand_dims(old_layer_ub, axis=0)
+                        old_layer_gurobi_vars = np.expand_dims(old_layer_gurobi_vars, axis=0)
 
-                        for prev_neuron_idx in range(weight.size(1)):
-                            coeff = weight.data[neuron_idx, prev_neuron_idx]  # picks the weight between the two neurons
-                            if coeff >= 0:
-                                ub = ub + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            else:  # inverted
-                                ub = ub + coeff * lower_bounds[-1][prev_neuron_idx]  # multiplies the ub
-                                lb = lb + coeff * upper_bounds[-1][prev_neuron_idx]  # multiplies the lb
-                            lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][prev_neuron_idx]  # multiplies the unknown by the coefficient
-                        #         print(lin_expr)
-                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
-                                                vtype=grb.GRB.CONTINUOUS,
-                                                name=f'lay{layer_idx}_{neuron_idx}')
-                        gurobi_model.addConstr(v == lin_expr)
-                        gurobi_model.update()
-                        #     print(f'v={v}')
-                        gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
-                        gurobi_model.optimize()
-                        #          print(f'gurobi status {gurobi_model.status}')
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        # We have computed a lower bound
-                        lb = v.X
-                        v.lb = lb
+                    out_size = np.array(list(old_layer_gurobi_vars.shape[:-1]) + list(shape[:-1]))
+                    out_size = out_size.astype(dtype=int)
+                    new_layer_lb = np.zeros(out_size)
+                    new_layer_ub = np.zeros(out_size)
+                    new_layer_gurobi_vars = np.ndarray(out_size, dtype=grb.Var)
+                    for prev_layer_row in range(old_layer_lb.shape[0]):  # i
+                        for row in range(shape[0]):  # j
+                            if bias is None:
+                                ub = 0
+                                lb = 0
+                                lin_expr = 0
+                            else:
+                                ub = bias.data[row].item()
+                                lb = bias.data[row].item()
+                                lin_expr = bias.data[row].item()  # adds the bias to the linear expression
+                            for prev_layer_col in range(old_layer_lb.shape[1]):  # k
+                                coeff = weight.data[row][prev_layer_col].item()  # picks the weight between the two neurons
+                                if coeff >= 0:
+                                    ub = ub + coeff * old_layer_ub[prev_layer_row][prev_layer_col]  # multiplies the ub
+                                    lb = lb + coeff * old_layer_lb[prev_layer_row][prev_layer_col]  # multiplies the lb
+                                else:  # inverted
+                                    ub = ub + coeff * old_layer_lb[prev_layer_row][prev_layer_col]  # multiplies the ub
+                                    lb = lb + coeff * old_layer_ub[prev_layer_row][prev_layer_col]  # multiplies the lb
+                                lin_expr = lin_expr + coeff * old_layer_gurobi_vars[prev_layer_row][prev_layer_col]  # multiplies the unknown by the coefficient
+                                #         print(lin_expr)
+                            v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
+                                                    vtype=grb.GRB.CONTINUOUS,
+                                                    name=f'lay{layer_idx}_{prev_layer_row}_{row}')
+                            gurobi_model.addConstr(v == lin_expr)
+                            gurobi_model.update()
+                            #     print(f'v={v}')
+                            gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+                            gurobi_model.optimize()
+                            #          print(f'gurobi status {gurobi_model.status}')
+                            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                            # We have computed a lower bound
+                            lb = v.X
+                            v.lb = lb
 
-                        # Let's now compute an upper bound
-                        gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
-                        gurobi_model.update()
-                        gurobi_model.reset()
-                        gurobi_model.optimize()
-                        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-                        ub = v.X
-                        v.ub = ub
+                            # Let's now compute an upper bound
+                            gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
+                            gurobi_model.update()
+                            gurobi_model.reset()
+                            gurobi_model.optimize()
+                            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                            ub = v.X
+                            v.ub = ub
 
-                        new_layer_lb.append(lb)
-                        new_layer_ub.append(ub)
-                        new_layer_gurobi_vars.append(v)
-                    # print(f'Linear')
-                    self.linear_layer(gurobi_model, gurobi_vars, layer.weight, layer.bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds)
+                            new_layer_lb[prev_layer_row][row] = lb
+                            new_layer_ub[prev_layer_row][row] = ub
+                            new_layer_gurobi_vars[prev_layer_row][row] = v
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
                 elif type(layer) is torch.Tensor:
-                    # print(f'Tensor')
-                    self.linear_layer(gurobi_model, gurobi_vars, layer, None, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds)
+                    weight = layer
+                    bias = None
+                    shape = np.array(weight.shape)
+                    # while len(shape) < 3:
+                    #     weight = weight.unsqueeze(0)
+                    #     bias = bias.unsqueeze(0)
+                    #     shape = np.array(weight.shape)
+                    old_layer_lb = lower_bounds[-1]
+                    old_layer_ub = upper_bounds[-1]
+                    old_layer_gurobi_vars = gurobi_vars[-1]
+                    while len(old_layer_lb.shape) < 2:
+                        old_layer_lb = np.expand_dims(old_layer_lb, axis=0)
+                        old_layer_ub = np.expand_dims(old_layer_ub, axis=0)
+                        old_layer_gurobi_vars = np.expand_dims(old_layer_gurobi_vars, axis=0)
+
+                    out_size = np.array(list(old_layer_gurobi_vars.shape[:-1]) + list(shape[:-1]))
+                    out_size = out_size.astype(dtype=int)
+                    new_layer_lb = np.zeros(out_size)
+                    new_layer_ub = np.zeros(out_size)
+                    new_layer_gurobi_vars = np.ndarray(out_size, dtype=grb.Var)
+                    for prev_layer_row in range(old_layer_lb.shape[0]):  # i
+                        for row in range(shape[0]):  # j
+                            if bias is None:
+                                ub = 0
+                                lb = 0
+                                lin_expr = 0
+                            else:
+                                ub = bias.data[row].item()
+                                lb = bias.data[row].item()
+                                lin_expr = bias.data[row].item()  # adds the bias to the linear expression
+                            for prev_layer_col in range(old_layer_lb.shape[1]):  # k
+                                coeff = weight.data[row][prev_layer_col].item()  # picks the weight between the two neurons
+                                if coeff >= 0:
+                                    ub = ub + coeff * old_layer_ub[prev_layer_row][prev_layer_col]  # multiplies the ub
+                                    lb = lb + coeff * old_layer_lb[prev_layer_row][prev_layer_col]  # multiplies the lb
+                                else:  # inverted
+                                    ub = ub + coeff * old_layer_lb[prev_layer_row][prev_layer_col]  # multiplies the ub
+                                    lb = lb + coeff * old_layer_ub[prev_layer_row][prev_layer_col]  # multiplies the lb
+                                lin_expr = lin_expr + coeff * old_layer_gurobi_vars[prev_layer_row][prev_layer_col]  # multiplies the unknown by the coefficient
+                                #         print(lin_expr)
+                            v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
+                                                    vtype=grb.GRB.CONTINUOUS,
+                                                    name=f'lay{layer_idx}_{prev_layer_row}_{row}')
+                            gurobi_model.addConstr(v == lin_expr)
+                            gurobi_model.update()
+                            #     print(f'v={v}')
+                            gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+                            gurobi_model.optimize()
+                            #          print(f'gurobi status {gurobi_model.status}')
+                            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                            # We have computed a lower bound
+                            lb = v.X
+                            v.lb = lb
+
+                            # Let's now compute an upper bound
+                            gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
+                            gurobi_model.update()
+                            gurobi_model.reset()
+                            gurobi_model.optimize()
+                            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                            ub = v.X
+                            v.ub = ub
+
+                            new_layer_lb[prev_layer_row][row] = lb
+                            new_layer_ub[prev_layer_row][row] = ub
+                            new_layer_gurobi_vars[prev_layer_row][row] = v
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
                 elif type(layer) == nn.ReLU:
-                    # print('Relu')
-                    for neuron_idx, pre_var in enumerate(gurobi_vars[-1]):
-                        pre_lb = lower_bounds[-1][neuron_idx]
-                        pre_ub = upper_bounds[-1][neuron_idx]
+                    previous_layer_size = np.array(gurobi_vars[-1].shape)
+                    new_layer_lb = np.zeros(previous_layer_size)
+                    new_layer_ub = np.zeros(previous_layer_size)
+                    new_layer_gurobi_vars = np.ndarray(previous_layer_size, dtype=grb.Var)
+                    for row, pre_vars in enumerate(gurobi_vars[-1]):
+                        for col, pre_var in enumerate(pre_vars):
+                            pre_lb = lower_bounds[-1][row][col]
+                            pre_ub = upper_bounds[-1][row][col]
 
-                        v = gurobi_model.addVar(lb=max(0, pre_lb),
-                                                ub=max(0, pre_ub),
-                                                obj=0,
-                                                vtype=grb.GRB.CONTINUOUS,
-                                                name=f'ReLU{layer_idx}_{neuron_idx}')
-                        if pre_lb >= 0 and pre_ub >= 0:
-                            # The ReLU is always passing
-                            gurobi_model.addConstr(v == pre_var)
-                            lb = pre_lb
-                            ub = pre_ub
-                        elif pre_lb <= 0 and pre_ub <= 0:
-                            lb = 0
-                            ub = 0
-                            # No need to add an additional constraint that v==0
-                            # because this will be covered by the bounds we set on
-                            # the value of v.
-                        else:
-                            lb = 0
-                            ub = pre_ub
-                            gurobi_model.addConstr(v >= pre_var)
+                            v = gurobi_model.addVar(lb=max(0, pre_lb),
+                                                    ub=max(0, pre_ub),
+                                                    obj=0,
+                                                    vtype=grb.GRB.CONTINUOUS,
+                                                    name=f'ReLU{layer_idx}_{row}_{col}')
+                            if pre_lb >= 0 and pre_ub >= 0:
+                                # The ReLU is always passing
+                                gurobi_model.addConstr(v == pre_var)
+                                lb = pre_lb
+                                ub = pre_ub
+                            elif pre_lb <= 0 and pre_ub <= 0:
+                                lb = 0
+                                ub = 0
+                                # No need to add an additional constraint that v==0
+                                # because this will be covered by the bounds we set on
+                                # the value of v.
+                            else:
+                                lb = 0
+                                ub = pre_ub
+                                gurobi_model.addConstr(v >= pre_var)
 
-                            slope = pre_ub / (pre_ub - pre_lb)
-                            bias = - pre_lb * slope
-                            gurobi_model.addConstr(v <= slope * pre_var + bias)
+                                slope = pre_ub / (pre_ub - pre_lb)
+                                bias = - pre_lb * slope
+                                gurobi_model.addConstr(v <= slope * pre_var + bias)
 
-                        new_layer_lb.append(lb)
-                        new_layer_ub.append(ub)
-                        new_layer_gurobi_vars.append(v)
+                            new_layer_lb[row][col] = lb
+                            new_layer_ub[row][col] = ub
+                            new_layer_gurobi_vars[row][col] = v
                 elif type(layer) == nn.MaxPool1d:
                     assert layer.padding == 0, "Non supported Maxpool option"
                     assert layer.dilation == 1, "Non supported MaxPool option"
@@ -242,10 +334,10 @@ class VerificationNetwork(nn.Module):
                         lb = max(lower_bounds[-1][pre_start_idx:pre_window_end])
                         ub = max(upper_bounds[-1][pre_start_idx:pre_window_end])
 
-                        neuron_idx = pre_start_idx // stride
+                        row = pre_start_idx // stride
 
                         v = gurobi_model.addVar(lb=lb, ub=ub, obj=0, vtype=grb.GRB.CONTINUOUS,
-                                                name=f'Maxpool{layer_idx}_{neuron_idx}')
+                                                name=f'Maxpool{layer_idx}_{row}')
                         all_pre_var = 0
                         for pre_var in gurobi_vars[-1][pre_start_idx:pre_window_end]:
                             gurobi_model.addConstr(v >= pre_var)
@@ -261,8 +353,22 @@ class VerificationNetwork(nn.Module):
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
                 elif type(layer) == Flatten:
-                    pass
+                    old_layer_lb = lower_bounds[-1]
+                    old_layer_ub = upper_bounds[-1]
+                    old_layer_gurobi_vars = gurobi_vars[-1]
+
+                    new_layer_lb = old_layer_lb.flatten()
+                    new_layer_ub = old_layer_ub.flatten()
+                    new_layer_gurobi_vars = old_layer_gurobi_vars.flatten()
+
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
+
                 elif type(layer) == nn.Conv2d:
+                    print(f"Start Conv2d_{layer_idx}")
+                    t1_start = time.perf_counter()
+                    t2_start = time.process_time()
                     # Compute convolution
                     kernel_size = np.array(layer.weight.shape[1:])
                     stride = np.array(layer.stride)
@@ -280,8 +386,8 @@ class VerificationNetwork(nn.Module):
                     for channel in range(out_size[0]):
                         for row in range(out_size[1]):
                             for col in range(out_size[2]):
-                                lb = layer.bias[channel]
-                                ub = layer.bias[channel]
+                                lb = layer.bias[channel].item()
+                                ub = layer.bias[channel].item()
                                 lin_expr = layer.bias[channel].item()
                                 for kernel_channel in range(kernel_size[0]):
                                     for i in range(kernel_size[1]):
@@ -292,25 +398,21 @@ class VerificationNetwork(nn.Module):
                                                 continue
                                             if col_prev_layer < 0 or col_prev_layer > lower_bounds[-1][kernel_channel].shape[1]:
                                                 continue
-                                            coeff = layer.weight[channel][kernel_channel][i][j]
+                                            coeff = layer.weight[channel][kernel_channel][i][j].item()
                                             if coeff > 0:
                                                 lb += coeff * lower_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
                                                 ub += coeff * upper_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
                                             else:  # invert lower bound and upper bound
                                                 lb += coeff * upper_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
                                                 ub += coeff * lower_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
-                                            lin_expr = lin_expr + coeff.item() * gurobi_vars[-1][kernel_channel][row_prev_layer][col_prev_layer]
+                                            lin_expr = lin_expr + coeff * gurobi_vars[-1][kernel_channel][row_prev_layer][col_prev_layer]
                                 v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
                                                         vtype=grb.GRB.CONTINUOUS,
                                                         name=f'lay{layer_idx}_{channel}_{row}_{col}')
                                 gurobi_model.addConstr(v == lin_expr)
                                 gurobi_model.update()
-                                gurobi_model.write("model.lp")
-                                gurobi_model.write("model.mps")
                                 gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
                                 gurobi_model.optimize()
-                                gurobi_model.computeIIS()
-                                gurobi_model.write("model.ilp")
                                 assert gurobi_model.status == 2, "LP wasn't optimally solved"
                                 # We have computed a lower bound
                                 lb = v.X
@@ -327,88 +429,50 @@ class VerificationNetwork(nn.Module):
                                 new_layer_lb[channel][row][col] = lb
                                 new_layer_ub[channel][row][col] = ub
                                 new_layer_gurobi_vars[channel][row][col] = v
-                                # window = conv_index[i:i + window_size][j:j + window_size]  # gets the indices of the flattened representation
-                                #
-                                # todo this is not going to work, find a way to do the matrix multiplication in the convolutional case
-                                # self.linear_layer(gurobi_model, gurobi_vars, layer.weight, layer.bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds)
-
-                # resultingNeurons = []
-                # for i in range(0, num_output):#number of filters
-                #     ysize = len(inputNeurons[0]) #rows
-                #     xsize = len(inputNeurons[0][0]) #columns
-                #     thisBlock = []
-                #     for y in range(-1 * padding[1], ysize - kernel_size[1] + 1 + padding[1], stride[1]):
-                #         thisLine = []
-                #         for x in range(-1 * padding[0], xsize - kernel_size[0] + 1 + padding[0], stride[0]):
-                #             thisLine.append(dataLineName + "X" + str(i) + "X" + str(x) + "X" + str(y))
-                #             localInputs = []
-                #             for kernel_channel in range(0, num_input_channels):
-                #                 for b in range(0, kernel_size[1]):
-                #                     for a in range(0, kernel_size[0]):
-                #                         if y + b >= 0 and y + b < len(inputNeurons[kernel_channel]):
-                #                             if x + a >= 0 and x + a < len(inputNeurons[kernel_channel][y + b]):
-                #                                 localInputs.append(str(unflattenedWeights[i][kernel_channel][b][a]) + " " + inputNeurons[kernel_channel][y + b][x + a])
-                #             sys.stdout.write("Linear " + thisLine[-1] + " " + str(biasses[i]) + " " + " ".join(localInputs) + "\n")
-                #         thisBlock.append(thisLine)
-                #     resultingNeurons.append(thisBlock)
-                def explicit_correlation(image, kernel):
-                    hi, wi = image.shape
-                    hk, wk = kernel.shape
-                    image_padded = np.zeros(shape=(hi + hk - 1, wi + wk - 1))
-                    image_padded[hk // 2:-hk // 2, wk // 2:-wk // 2] = image
-                    out = np.zeros(shape=image.shape)
-                    for row in range(hi):
-                        for col in range(wi):
-                            for i in range(hk):
-                                for j in range(wk):
-                                    out[row, col] += image_padded[row + i, col + j] * kernel[i, j]
-                    return out
-
-                pass
-
-            else:
-                raise NotImplementedError
-            lower_bounds.append(new_layer_lb)
-            upper_bounds.append(new_layer_ub)
-            gurobi_vars.append(new_layer_gurobi_vars)
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
+                    t1_stop = time.perf_counter()
+                    t2_stop = time.process_time()
+                    print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
 
             layer_idx += 1
-        # Assert that this is as expected a network with a single output
-        # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"
+            # Assert that this is as expected a network with a single output
+            # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"
 
-        # last layer, minimise
-        v = gurobi_model.addVar(lb=min(lower_bounds[-1]), ub=max(upper_bounds[-1]), obj=0,
-                                vtype=grb.GRB.CONTINUOUS,
-                                name=f'lay{layer_idx}_min')
-        #     gurobi_model.addConstr(v == min(gurobi_vars[-1]))
-        gurobi_model.addGenConstrMin(v, gurobi_vars[-1], name="minconstr")
-        gurobi_model.update()
-        #     print(f'v={v}')
-        gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
-        gurobi_model.optimize()
+            # last layer, minimise
+            v = gurobi_model.addVar(lb=min(lower_bounds[-1][0]), ub=max(upper_bounds[-1][0]), obj=0,
+                                    vtype=grb.GRB.CONTINUOUS,
+                                    name=f'lay{layer_idx}_min')
+            #     gurobi_model.addConstr(v == min(gurobi_vars[-1]))
+            gurobi_model.addGenConstrMin(v, gurobi_vars[-1], name="minconstr")
+            gurobi_model.update()
+            #     print(f'v={v}')
+            gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+            gurobi_model.optimize()
 
-        gurobi_model.update()
-        gurobi_vars.append([v])
+            gurobi_model.update()
+            gurobi_vars.append([v])
 
-        # We will first setup the appropriate bounds for the elements of the
-        # input
-        # is it just to be sure?
-        for var_idx, inp_var in enumerate(gurobi_vars[0]):
-            inp_var.lb = domain[var_idx, 0]
-            inp_var.ub = domain[var_idx, 1]
+            # We will first setup the appropriate bounds for the elements of the
+            # input
+            # is it just to be sure?
+            for var_idx, inp_var in enumerate(gurobi_vars[0]):
+                inp_var.lb = domain[var_idx, 0]
+                inp_var.ub = domain[var_idx, 1]
 
-        # We will make sure that the objective function is properly set up
-        gurobi_model.setObjective(gurobi_vars[-1][0], grb.GRB.MINIMIZE)
-        # print(f'gurobi_vars[-1][0].size()={len(gurobi_vars[-1])}')
-        # We will now compute the requested lower bound
-        gurobi_model.update()
-        gurobi_model.optimize()
-        assert gurobi_model.status == 2, "LP wasn't optimally solved"
-        # print(f'gurobi status {gurobi_model.status}')
-        # print(f'Result={gurobi_vars[-1][0].X}')
-        # print(f'Result={gurobi_vars[-1]}')
-        # print(f'Result -1={gurobi_vars[-2]}')
-        return gurobi_vars[-1][0].X
+            # We will make sure that the objective function is properly set up
+            gurobi_model.setObjective(gurobi_vars[-1][0], grb.GRB.MINIMIZE)
+            # print(f'gurobi_vars[-1][0].size()={len(gurobi_vars[-1])}')
+            # We will now compute the requested lower bound
+            gurobi_model.update()
+            gurobi_model.optimize()
+            assert gurobi_model.status == 2, "LP wasn't optimally solved"
+            # print(f'gurobi status {gurobi_model.status}')
+            # print(f'Result={gurobi_vars[-1][0].X}')
+            # print(f'Result={gurobi_vars[-1]}')
+            # print(f'Result -1={gurobi_vars[-2]}')
+            return gurobi_vars[-1][0].X
 
 
 def linear_layer(self, gurobi_model, gurobi_vars, weight, bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds):
