@@ -1,11 +1,11 @@
+import time
+
+import gurobipy as grb
 import numpy as np
 import torch
 from torch import nn as nn
-import gurobipy as grb
-import itertools
+
 from plnn.flatten import Flatten
-from plnn.mini_net import Net
-import time
 
 use_cuda = True
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
@@ -367,6 +367,7 @@ class VerificationNetwork(nn.Module):
 
                 elif type(layer) == nn.Conv2d:
                     print(f"Start Conv2d_{layer_idx}")
+                    self.convert_ConvL_to_FCL(layers[layer_idx - 1], layer)
                     t1_start = time.perf_counter()
                     t2_start = time.process_time()
                     # Compute convolution
@@ -441,11 +442,14 @@ class VerificationNetwork(nn.Module):
             # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"
 
             # last layer, minimise
-            v = gurobi_model.addVar(lb=min(lower_bounds[-1][0]), ub=max(upper_bounds[-1][0]), obj=0,
+            lower_bound = min(lower_bounds[-1][0])
+            upper_bound = max(upper_bounds[-1][0])
+            assert lower_bound <= upper_bound
+            v = gurobi_model.addVar(lb=lower_bound, ub=upper_bound, obj=0,
                                     vtype=grb.GRB.CONTINUOUS,
                                     name=f'lay{layer_idx}_min')
             #     gurobi_model.addConstr(v == min(gurobi_vars[-1]))
-            gurobi_model.addGenConstrMin(v, gurobi_vars[-1], name="minconstr")
+            gurobi_model.addGenConstrMin(v, gurobi_vars[-1][0], name="minconstr")
             gurobi_model.update()
             #     print(f'v={v}')
             gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
@@ -457,9 +461,9 @@ class VerificationNetwork(nn.Module):
             # We will first setup the appropriate bounds for the elements of the
             # input
             # is it just to be sure?
-            for var_idx, inp_var in enumerate(gurobi_vars[0]):
-                inp_var.lb = domain[var_idx, 0]
-                inp_var.ub = domain[var_idx, 1]
+            # for var_idx, inp_var in enumerate(gurobi_vars[0]):
+            #     inp_var.lb = domain[var_idx, 0]
+            #     inp_var.ub = domain[var_idx, 1]
 
             # We will make sure that the objective function is properly set up
             gurobi_model.setObjective(gurobi_vars[-1][0], grb.GRB.MINIMIZE)
@@ -473,6 +477,41 @@ class VerificationNetwork(nn.Module):
             # print(f'Result={gurobi_vars[-1]}')
             # print(f'Result -1={gurobi_vars[-2]}')
             return gurobi_vars[-1][0].X
+
+    def convert_ConvL_to_FCL(self, input: torch.Tensor, K: torch.nn.Conv2d):
+        batch_size, channels_in, h_in, w_in = tuple(input.size())
+        channels_out, channels_in, k_h, k_w = tuple(K.weight.size())
+        stride = K.stride
+        h_out = int((h_in + 2 * K.padding[0] - k_h) / stride[0] + 1)
+        w_out = int((w_in + 2 * K.padding[1] - k_w) / stride[1] + 1)
+        padding = stride[0] * (h_out - 1) + k_h - h_in
+        plefttop = int((padding - 1) / 2) if padding > 0 else 0
+        prightbot = padding - plefttop
+        padedinput = np.lib.pad(input.cpu(), ((0, 0), (plefttop, prightbot), (plefttop, prightbot), (0, 0)), 'constant',
+                                constant_values=((0, 0), (0, 0), (0, 0), (0, 0)))
+        # M = torch.tensor(np.ndarray(shape=(batch_size * h_out * w_out, k_h * k_w * channels_in)))
+        stretchinput = np.zeros(shape=(batch_size * h_out * w_out, k_h * k_w * channels_in), dtype=np.float32)
+        # L = torch.tensor(np.ndarray(shape=(k_h * k_w * channels_in, channels_out)))
+        for j in range(stretchinput.shape[0]):
+            batch_index = int(j / (h_out * w_out))
+            patch_index = j % (h_out * w_out)
+            ih2 = patch_index % w_out
+            iw2 = int(patch_index / w_out)
+            sih1 = iw2 * stride[0]
+            siw1 = ih2 * stride[1]
+            stretchinput[j, :] = padedinput[batch_index, :, sih1:sih1 + k_h, siw1:siw1 + k_w].flatten()
+        return torch.tensor(stretchinput)
+
+    def stretchKernel(self, kernel: torch.Tensor):
+        '''
+        :param kernel: it has the shape (filters, height, width, channels) denoted as (filter_num, kh, kw, ch)
+        :return: kernel of the shape (kh*kw*ch,filter_num)
+        '''
+        filter_num,ch, kh, kw = kernel.shape
+        stretchkernel = np.zeros((kh * kw * ch, filter_num), dtype=np.float32)
+        for i in range(filter_num):
+            stretchkernel[:, i] = kernel[i, :, :, :].cpu().detach().numpy().flatten()
+        return torch.tensor(stretchkernel)
 
 
 def linear_layer(self, gurobi_model, gurobi_vars, weight, bias, layer_idx, lower_bounds, new_layer_gurobi_vars, new_layer_lb, new_layer_ub, upper_bounds):

@@ -1,12 +1,12 @@
-from plnn.branch_and_bound import CandidateDomain, bab
-from plnn.mnist_basic import Net
 import torch
-import torch.nn as nn
-from torchvision.datasets.mnist import MNIST
 import torch.utils.data
 from torchvision import datasets, transforms
+from torchvision.datasets.mnist import MNIST
 
+from plnn.branch_and_bound import bab
+from plnn.mnist_basic import Net
 from verification.verification_network import VerificationNetwork
+import im2col
 
 use_cuda = True
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
@@ -40,9 +40,14 @@ target = target.to(device)
 print(f'data size:{data.size()}')
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
+
 verification_model = VerificationNetwork(model, batch_size, data_size)
 verification_model.to(device)
-
+fcl = verification_model.convert_ConvL_to_FCL(data, verification_model.base_network.layers[0])
+stretch_kernel = verification_model.stretchKernel(verification_model.base_network.layers[0].weight)
+result = torch.matmul(fcl, stretch_kernel)
+result2 = verification_model.base_network.layers[0](data)
+im2col.im2col_indices(data.cpu().numpy(),)
 epsilon = 1e-2
 decision_bound = 0
 successes = 0
