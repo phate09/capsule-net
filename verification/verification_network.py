@@ -478,13 +478,12 @@ class VerificationNetwork(nn.Module):
             # print(f'Result -1={gurobi_vars[-2]}')
             return gurobi_vars[-1][0].X
 
-    def convert_ConvL_to_FCL(self, input: torch.Tensor, K: torch.nn.Conv2d):
-        batch_size, channels_in, h_in, w_in = tuple(input.size())
-        channels_out, channels_in, k_h, k_w = tuple(K.weight.size())
-        stride = K.stride
-        h_out = int((h_in + 2 * K.padding[0] - k_h) / stride[0] + 1)
-        w_out = int((w_in + 2 * K.padding[1] - k_w) / stride[1] + 1)
-        padding = stride[0] * (h_out - 1) + k_h - h_in
+    def convert_ConvL_to_FCL(self, input: torch.Tensor, K: torch.Tensor, padding, stride):
+        batch_size, channels_in, h_in, w_in = input.size()
+        channels_out, channels_in, k_h, k_w = K.size()
+        h_out = int((h_in + 2 * padding - k_h) / stride + 1)
+        w_out = int((w_in + 2 * padding - k_w) / stride + 1)
+        padding = stride * (h_out - 1) + k_h - h_in
         plefttop = int((padding - 1) / 2) if padding > 0 else 0
         prightbot = padding - plefttop
         padedinput = np.lib.pad(input.cpu(), ((0, 0), (plefttop, prightbot), (plefttop, prightbot), (0, 0)), 'constant',
@@ -497,17 +496,77 @@ class VerificationNetwork(nn.Module):
             patch_index = j % (h_out * w_out)
             ih2 = patch_index % w_out
             iw2 = int(patch_index / w_out)
-            sih1 = iw2 * stride[0]
-            siw1 = ih2 * stride[1]
+            sih1 = iw2 * stride
+            siw1 = ih2 * stride
             stretchinput[j, :] = padedinput[batch_index, :, sih1:sih1 + k_h, siw1:siw1 + k_w].flatten()
-        return torch.tensor(stretchinput)
+        return torch.tensor(stretchinput),(batch_size,h_out,w_out,channels_out)
+
+    def recoverInput(self, input, kernel_size, stride, outshape):
+        '''
+        :param input: it is of the shape (height, width)
+        :param kernel_size: it is the kernel shape we want
+        :param stride:
+        :param outshape: the shape of the output
+        :return:
+        '''
+        H, W = input.shape
+        batch, h, w, ch = outshape
+        original_input = np.zeros(outshape)
+        first_row_index = np.arange(0, w, kernel_size)
+        first_col_index = np.arange(0, h, kernel_size)
+
+        patches_row = int((w - kernel_size) / stride) + 1
+        # patches_col = (h-kernel_size)/stride + 11_2
+        rowend_index = kernel_size - (w - first_row_index[-1])
+        colend_index = kernel_size - (h - first_col_index[-1])
+        if first_row_index[-1] + kernel_size > w:
+            first_row_index[-1] = first_row_index[-1] - (first_row_index[-1] + kernel_size - 1 - (w - 1))
+        if first_col_index[-1] + kernel_size > h:
+            first_col_index[-1] = first_col_index[-1] - (first_col_index[-1] + kernel_size - 1 - (h - 1))
+
+        for k in range(batch):
+            for i in range(len(first_col_index)):
+                for j in range(len(first_row_index)):
+                    w_index = first_row_index[j] + i * patches_row + \
+                              k * (int((h - kernel_size) / stride) + 1) * (int((w - kernel_size) / stride) + 1)
+                    # print('------------------------')
+                    if i != len(first_col_index) - 1 and j != len(first_row_index) - 1:
+                        # print( original_input[  k , first_row_index[j] : first_row_index[j]+kernel_size ,
+                        #     first_col_index[i] :  first_col_index[i]+kernel_size ,:].shape)
+                        # print(input[w_index,:].reshape(kernel_size,kernel_size,-11_2).shape)
+                        original_input[k, first_row_index[j]: first_row_index[j] + kernel_size,
+                        first_col_index[i]:  first_col_index[i] + kernel_size, :] \
+                            = input[w_index, :].reshape(kernel_size, kernel_size, -1)
+                    elif i == len(first_col_index) - 1 and j != len(first_row_index) - 1:
+                        # print(original_input[k, first_col_index[-11_2] + colend_index : ,
+                        #     first_row_index[i] :  first_row_index[i]+kernel_size, :].shape)
+                        # print(input[w_index, :].reshape(kernel_size, kernel_size, -11_2)[rowend_index:,:,:].shape)
+                        original_input[k, first_col_index[-1] + colend_index:,
+                        first_row_index[i]:  first_row_index[i] + kernel_size, :] \
+                            = input[w_index, :].reshape(kernel_size, kernel_size, -1)[rowend_index:, :, :]
+                    elif i != len(first_col_index) - 1 and j == len(first_row_index) - 1:
+                        # print(original_input[k, first_col_index[i]: first_col_index[i]+kernel_size, first_row_index[-11_2]+rowend_index : ,:].shape)
+                        # print(input[w_index, :].reshape(kernel_size, kernel_size, -11_2)[:, colend_index : , :].shape)
+                        original_input[k, first_col_index[i]: first_col_index[i] + kernel_size,
+                        first_row_index[-1] + rowend_index:, :] \
+                            = input[w_index, :].reshape(kernel_size, kernel_size, -1)[:, colend_index:, :]
+                    else:
+                        # print( original_input[k,first_col_index[-11_2] + colend_index : ,
+                        #     first_row_index[-11_2] + rowend_index:, :].shape)
+                        # print(input[w_index, :].reshape(kernel_size, kernel_size, -11_2)[
+                        #       rowend_index :, colend_index :, :].shape)
+                        original_input[k, first_col_index[-1] + colend_index:,
+                        first_row_index[-1] + rowend_index:, :] \
+                            = input[w_index, :].reshape(kernel_size, kernel_size, -1)[
+                              rowend_index:, colend_index:, :]
+        return original_input
 
     def stretchKernel(self, kernel: torch.Tensor):
         '''
         :param kernel: it has the shape (filters, height, width, channels) denoted as (filter_num, kh, kw, ch)
         :return: kernel of the shape (kh*kw*ch,filter_num)
         '''
-        filter_num,ch, kh, kw = kernel.shape
+        filter_num, ch, kh, kw = kernel.shape
         stretchkernel = np.zeros((kh * kw * ch, filter_num), dtype=np.float32)
         for i in range(filter_num):
             stretchkernel[:, i] = kernel[i, :, :, :].cpu().detach().numpy().flatten()
