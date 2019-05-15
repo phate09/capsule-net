@@ -17,7 +17,7 @@ def generate_domain(input_tensor, eps_size):
 
 
 model = Net()
-model.load_state_dict(torch.load('save/mnist_cnn.pt'))
+model.load_state_dict(torch.load('save/mnist_cnn.pt',map_location='cpu'))
 dataset = MNIST('./data', train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),

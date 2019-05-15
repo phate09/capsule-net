@@ -499,7 +499,7 @@ class VerificationNetwork(nn.Module):
             sih1 = iw2 * stride
             siw1 = ih2 * stride
             stretchinput[j, :] = padedinput[batch_index, :, sih1:sih1 + k_h, siw1:siw1 + k_w].flatten()
-        return torch.tensor(stretchinput),(batch_size,h_out,w_out,channels_out)
+        return torch.tensor(stretchinput),(batch_size,channels_out,h_out,w_out)
 
     def recoverInput(self, input, kernel_size, stride, outshape):
         '''
