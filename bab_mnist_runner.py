@@ -43,13 +43,13 @@ data_size = data.size()
 
 verification_model = VerificationNetwork(model, batch_size, data_size)
 verification_model.to(device)
-convL: torch.nn.Conv2d = verification_model.base_network.layers[0]
-fcl, output_size = verification_model.convert_ConvL_to_FCL(data, convL.weight, convL.padding[0], convL.stride[0])
-stretch_kernel = verification_model.stretchKernel(convL.weight)
-result: torch.Tensor = torch.matmul(fcl, stretch_kernel)
-result_final = result.transpose(0, 1) + convL.bias.unsqueeze(1).expand(-1, 576).cpu()
-result_reshaped = result_final.reshape(output_size)
-result2 = convL(data)
+# convL: torch.nn.Conv2d = verification_model.base_network.layers[0]
+# fcl, output_size = verification_model.convert_ConvL_to_FCL(data, convL.weight, convL.padding[0], convL.stride[0])
+# stretch_kernel = verification_model.stretchKernel(convL.weight)
+# result: torch.Tensor = torch.matmul(fcl, stretch_kernel)
+# result_final = result.transpose(0, 1) + convL.bias.unsqueeze(1).expand(-1, 576).cpu()
+# result_reshaped = result_final.reshape(output_size)
+# result2 = convL(data)
 # im2col.im2col_indices(data.cpu().numpy(),)
 
 epsilon = 1e-2
