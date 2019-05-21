@@ -40,7 +40,7 @@ target = target.to(device)
 print(f'data size:{data.size()}')
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
-verification_model = VerificationNetwork(model, batch_size, data_size)
+verification_model = VerificationNetwork()
 verification_model.to(device)
 
 epsilon = 1e-2

@@ -1,6 +1,5 @@
 import torch
 import torch.utils.data
-from torch import nn
 from torchvision import datasets, transforms
 from torchvision.datasets.mnist import MNIST
 
@@ -17,7 +16,7 @@ def generate_domain(input_tensor, eps_size):
 
 
 model = Net()
-model.load_state_dict(torch.load('save/mnist_cnn.pt',map_location='cpu'))
+model.load_state_dict(torch.load('save/mnist_cnn.pt', map_location='cpu'))
 dataset = MNIST('./data', train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),
@@ -41,7 +40,7 @@ print(f'data size:{data.size()}')
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
 
-verification_model = VerificationNetwork(model, batch_size, data_size)
+verification_model = VerificationNetwork(model)
 verification_model.to(device)
 # convL: torch.nn.Conv2d = verification_model.base_network.layers[0]
 # fcl, output_size = verification_model.convert_ConvL_to_FCL(data, convL.weight, convL.padding[0], convL.stride[0])
@@ -59,7 +58,7 @@ attempts = 0
 last_result = ""
 for data, target in iter(test_loader):
     domain_raw = generate_domain(data, 0.001)
-    domain = domain_raw.to(device)
+    domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)
     attempts += 1
     if min_lb >= 0:

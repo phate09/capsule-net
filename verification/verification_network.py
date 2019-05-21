@@ -12,10 +12,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "c
 
 
 class VerificationNetwork(nn.Module):
-    def __init__(self, base_network, batch_size, input_size):
+    def __init__(self, base_network):
         super(VerificationNetwork, self).__init__()
-        self.batch_size = batch_size
-        self.input_size = input_size
         self.base_network = base_network
 
     '''need to  repeat this method for each class so that it describes the distance between the corresponding class 
@@ -327,9 +325,12 @@ class VerificationNetwork(nn.Module):
                                     bias = - pre_lb * slope
                                     gurobi_model.addConstr(v <= slope * pre_var + bias)
 
-                                new_layer_lb[row][col] = lb
-                                new_layer_ub[row][col] = ub
-                                new_layer_gurobi_vars[row][col] = v
+                                new_layer_lb[channel][row][col] = lb
+                                new_layer_ub[channel][row][col] = ub
+                                new_layer_gurobi_vars[channel][row][col] = v
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
                 elif type(layer) == nn.MaxPool1d:
                     assert layer.padding == 0, "Non supported Maxpool option"
                     assert layer.dilation == 1, "Non supported MaxPool option"
@@ -362,6 +363,60 @@ class VerificationNetwork(nn.Module):
                         new_layer_lb.append(lb)
                         new_layer_ub.append(ub)
                         new_layer_gurobi_vars.append(v)
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
+                elif type(layer) == nn.MaxPool2d:
+                    old_layer_lb = lower_bounds[-1]
+                    old_layer_ub = upper_bounds[-1]
+                    old_layer_gurobi_vars = gurobi_vars[-1]
+                    t1_start = time.perf_counter()
+                    t2_start = time.process_time()
+                    # Compute convolution
+                    ch_in, h_in, w_in = old_layer_lb.shape
+                    k_h = layer.kernel_size
+                    k_w = layer.kernel_size
+                    padding = layer.padding  # np.array(layer.padding)
+                    stride = layer.stride  # np.array(layer.stride)
+                    h_out = int((h_in + 2 * padding - k_h) / stride + 1)
+                    w_out = int((w_in + 2 * padding - k_w) / stride + 1)
+                    # out_channels = np.array(layer.out_channels)
+                    previous_layer_size = np.array(gurobi_vars[-1].shape)
+                    out_size = (ch_in, h_out, w_out)
+                    new_layer_lb = np.zeros(out_size)
+                    new_layer_ub = np.zeros(out_size)
+                    new_layer_gurobi_vars = np.ndarray(out_size, dtype=grb.Var)
+                    for channel in range(ch_in):
+                        for row in range(h_out):
+                            for col in range(w_out):
+                                lin_expr = 0  # layer.bias[channel].item()
+                                lb = max(lower_bounds[-1][channel][col * stride - padding:col * stride - padding+k_w][row * stride - padding:row * stride - padding +k_h])
+                                ub = max(upper_bounds[-1][channel][col * stride - padding:col * stride - padding+k_w][row * stride - padding:row * stride - padding +k_h])
+                                v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
+                                                        vtype=grb.GRB.CONTINUOUS,
+                                                        name=f'lay{layer_idx}_{channel}_{row}_{col}')
+                                gurobi_model.addConstr(v >= lb)
+                                gurobi_model.addConstr(v <= ub)
+                                gurobi_model.update()
+                                gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
+                                gurobi_model.optimize()
+                                assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                                # We have computed a lower bound
+                                lb = v.X
+                                v.lb = lb
+
+                                # Let's now compute an upper bound
+                                gurobi_model.setObjective(v, grb.GRB.MAXIMIZE)
+                                gurobi_model.update()
+                                gurobi_model.reset()
+                                gurobi_model.optimize()
+                                assert gurobi_model.status == 2, "LP wasn't optimally solved"
+                                ub = v.X
+                                v.ub = ub
+                                new_layer_lb[channel][row][col] = lb
+                                new_layer_ub[channel][row][col] = ub
+                                new_layer_gurobi_vars[channel][row][col] = v
+
                 elif type(layer) == Flatten:
                     old_layer_lb = lower_bounds[-1]
                     old_layer_ub = upper_bounds[-1]
@@ -380,7 +435,6 @@ class VerificationNetwork(nn.Module):
                     old_layer_lb = lower_bounds[-1]
                     old_layer_ub = upper_bounds[-1]
                     old_layer_gurobi_vars = gurobi_vars[-1]
-                    # self.convert_ConvL_to_FCL(layers[layer_idx - 1], layer)
                     t1_start = time.perf_counter()
                     t2_start = time.process_time()
                     # Compute convolution
@@ -452,6 +506,8 @@ class VerificationNetwork(nn.Module):
                     t1_stop = time.perf_counter()
                     t2_stop = time.process_time()
                     print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
+                else:
+                    raise Exception('Type of layer not supported')
 
             layer_idx += 1
             # Assert that this is as expected a network with a single output
