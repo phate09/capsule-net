@@ -100,7 +100,7 @@ class VerificationNetwork(nn.Module):
         # now try to do the lower bound
 
         batch_size = 1  # domain.size()[1]
-        for index in range(batch_size):  # todo need to use the same dimension as the layer
+        for index in range(batch_size):
             input_domain = domain.select(0,
                                          index)  # .select(1, index)  # we use a single domain, not ready for parallelisation yet
             # print(f'input_domain.size()={input_domain.size()}')
@@ -390,8 +390,10 @@ class VerificationNetwork(nn.Module):
                         for row in range(h_out):
                             for col in range(w_out):
                                 lin_expr = 0  # layer.bias[channel].item()
-                                lb = max(lower_bounds[-1][channel][col * stride - padding:col * stride - padding+k_w][row * stride - padding:row * stride - padding +k_h])
-                                ub = max(upper_bounds[-1][channel][col * stride - padding:col * stride - padding+k_w][row * stride - padding:row * stride - padding +k_h])
+                                lower_bounds_section = lower_bounds[-1][channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
+                                lb = lower_bounds_section.max()
+                                upper_bounds_section = upper_bounds[-1][channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
+                                ub = upper_bounds_section.max()
                                 v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
                                                         vtype=grb.GRB.CONTINUOUS,
                                                         name=f'lay{layer_idx}_{channel}_{row}_{col}')
@@ -416,7 +418,12 @@ class VerificationNetwork(nn.Module):
                                 new_layer_lb[channel][row][col] = lb
                                 new_layer_ub[channel][row][col] = ub
                                 new_layer_gurobi_vars[channel][row][col] = v
-
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
+                    t1_stop = time.perf_counter()
+                    t2_stop = time.process_time()
+                    print(f"End MaxPool2d{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
                 elif type(layer) == Flatten:
                     old_layer_lb = lower_bounds[-1]
                     old_layer_ub = upper_bounds[-1]
@@ -509,7 +516,7 @@ class VerificationNetwork(nn.Module):
                 else:
                     raise Exception('Type of layer not supported')
 
-            layer_idx += 1
+                layer_idx += 1
             # Assert that this is as expected a network with a single output
             # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"
 
