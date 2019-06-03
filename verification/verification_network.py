@@ -290,15 +290,25 @@ class VerificationNetwork(nn.Module):
                     upper_bounds.append(new_layer_ub)
                     gurobi_vars.append(new_layer_gurobi_vars)
                 elif type(layer) == nn.ReLU:
-                    previous_layer_size = np.array(gurobi_vars[-1].shape)
+                    old_layer_lb = lower_bounds[-1]
+                    old_layer_ub = upper_bounds[-1]
+                    old_layer_gurobi_vars = gurobi_vars[-1]
+                    dimensions_added = 0
+                    while len(old_layer_lb.shape) < 3:
+                        old_layer_lb = np.expand_dims(old_layer_lb, axis=0)
+                        old_layer_ub = np.expand_dims(old_layer_ub, axis=0)
+                        old_layer_gurobi_vars = np.expand_dims(old_layer_gurobi_vars, axis=0)
+                        dimensions_added = dimensions_added + 1
+                    previous_layer_size = np.array(old_layer_gurobi_vars.shape)
                     new_layer_lb = np.zeros(previous_layer_size)
                     new_layer_ub = np.zeros(previous_layer_size)
                     new_layer_gurobi_vars = np.ndarray(previous_layer_size, dtype=grb.Var)
-                    for channel, pre_chan in enumerate(gurobi_vars[-1]):
+
+                    for channel, pre_chan in enumerate(old_layer_gurobi_vars):
                         for row, pre_vars in enumerate(pre_chan):
                             for col, pre_var in enumerate(pre_vars):
-                                pre_lb = lower_bounds[-1][channel][row][col]
-                                pre_ub = upper_bounds[-1][channel][row][col]
+                                pre_lb = old_layer_lb[channel][row][col]
+                                pre_ub = old_layer_ub[channel][row][col]
 
                                 v = gurobi_model.addVar(lb=max(0, pre_lb),
                                                         ub=max(0, pre_ub),
@@ -328,41 +338,10 @@ class VerificationNetwork(nn.Module):
                                 new_layer_lb[channel][row][col] = lb
                                 new_layer_ub[channel][row][col] = ub
                                 new_layer_gurobi_vars[channel][row][col] = v
-                    lower_bounds.append(new_layer_lb)
-                    upper_bounds.append(new_layer_ub)
-                    gurobi_vars.append(new_layer_gurobi_vars)
-                elif type(layer) == nn.MaxPool1d:
-                    assert layer.padding == 0, "Non supported Maxpool option"
-                    assert layer.dilation == 1, "Non supported MaxPool option"
-                    nb_pre = len(self.gurobi_vars[-1])
-                    window_size = layer.kernel_size
-                    stride = layer.stride
-
-                    pre_start_idx = 0
-                    pre_window_end = pre_start_idx + window_size
-
-                    while pre_window_end <= nb_pre:
-                        lb = max(lower_bounds[-1][pre_start_idx:pre_window_end])
-                        ub = max(upper_bounds[-1][pre_start_idx:pre_window_end])
-
-                        row = pre_start_idx // stride
-
-                        v = gurobi_model.addVar(lb=lb, ub=ub, obj=0, vtype=grb.GRB.CONTINUOUS,
-                                                name=f'Maxpool{layer_idx}_{row}')
-                        all_pre_var = 0
-                        for pre_var in gurobi_vars[-1][pre_start_idx:pre_window_end]:
-                            gurobi_model.addConstr(v >= pre_var)
-                            all_pre_var += pre_var
-                        all_lb = sum(lower_bounds[-1][pre_start_idx:pre_window_end])
-                        max_pre_lb = lb
-                        gurobi_model.addConstr(all_pre_var >= v + all_lb - max_pre_lb)
-
-                        pre_start_idx += stride
-                        pre_window_end = pre_start_idx + window_size
-
-                        new_layer_lb.append(lb)
-                        new_layer_ub.append(ub)
-                        new_layer_gurobi_vars.append(v)
+                    for i in range(dimensions_added):
+                        new_layer_lb = new_layer_lb.squeeze(axis=0)
+                        new_layer_ub = new_layer_ub.squeeze(axis=0)
+                        new_layer_gurobi_vars = new_layer_gurobi_vars.squeeze(axis=0)
                     lower_bounds.append(new_layer_lb)
                     upper_bounds.append(new_layer_ub)
                     gurobi_vars.append(new_layer_gurobi_vars)
@@ -390,9 +369,9 @@ class VerificationNetwork(nn.Module):
                         for row in range(h_out):
                             for col in range(w_out):
                                 lin_expr = 0  # layer.bias[channel].item()
-                                lower_bounds_section = lower_bounds[-1][channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
+                                lower_bounds_section = old_layer_lb[channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
                                 lb = lower_bounds_section.max()
-                                upper_bounds_section = upper_bounds[-1][channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
+                                upper_bounds_section = old_layer_ub[channel, col * stride - padding:col * stride - padding + k_w, row * stride - padding:row * stride - padding + k_h]
                                 ub = upper_bounds_section.max()
                                 v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
                                                         vtype=grb.GRB.CONTINUOUS,
@@ -471,18 +450,18 @@ class VerificationNetwork(nn.Module):
                                             row_prev_layer = row * stride[0] - padding[0] + i
                                             col_prev_layer = col * stride[1] - padding[1] + j
                                             if row_prev_layer < 0 or row_prev_layer > \
-                                                    lower_bounds[-1][kernel_channel].shape[0]:
+                                                    old_layer_lb[kernel_channel].shape[0]:
                                                 continue
                                             if col_prev_layer < 0 or col_prev_layer > \
-                                                    lower_bounds[-1][kernel_channel].shape[1]:
+                                                    old_layer_lb[kernel_channel].shape[1]:
                                                 continue
                                             coeff = layer.weight[channel][kernel_channel][i][j].item()
                                             if coeff > 0:
-                                                lb += coeff * lower_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
-                                                ub += coeff * upper_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
+                                                lb += coeff * old_layer_lb[kernel_channel][row_prev_layer][col_prev_layer]
+                                                ub += coeff * old_layer_ub[kernel_channel][row_prev_layer][col_prev_layer]
                                             else:  # invert lower bound and upper bound
-                                                lb += coeff * upper_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
-                                                ub += coeff * lower_bounds[-1][kernel_channel][row_prev_layer][col_prev_layer]
+                                                lb += coeff * old_layer_ub[kernel_channel][row_prev_layer][col_prev_layer]
+                                                ub += coeff * old_layer_lb[kernel_channel][row_prev_layer][col_prev_layer]
                                             lin_expr = lin_expr + coeff * gurobi_vars[-1][kernel_channel][row_prev_layer][col_prev_layer]
                                 v = gurobi_model.addVar(lb=lb, ub=ub, obj=0,
                                                         vtype=grb.GRB.CONTINUOUS,
