@@ -58,17 +58,17 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
                       as well as the point where the upper bound is achieved
     '''
 
-    # global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
-    # global_lb = net.get_lower_bound(domain, true_class_index)
-    # assert global_lb <= global_ub, "lb must be lower than ub"
     nb_input_var = domain.size()[0]
     normed_domain = torch.stack((torch.zeros(nb_input_var),
                                  torch.ones(nb_input_var)), 1)
     domain_lb = domain.select(-1, 0)
     domain_width = domain.select(-1, 1) - domain.select(-1, 0)
-    domain_lb = domain_lb.contiguous().expand(domain.size()[:-1], 2)
-    domain_width = domain_width.view(nb_input_var, 1).expand(nb_input_var, 2)
+    domain_lb = domain_lb.contiguous().unsqueeze(4).expand(domain.size())
+    domain_width = domain_width.contiguous().unsqueeze(4).expand(domain.size())
 
+    global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
+    global_lb = net.get_lower_bound(domain, true_class_index)
+    assert global_lb <= global_ub, "lb must be lower than ub"
     # Use objects of type CandidateDomain to store domains with their bounds.
     candidate_domain = CandidateDomain(lb=global_lb, ub=global_ub,
                                        dm=normed_domain)

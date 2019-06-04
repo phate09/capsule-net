@@ -500,7 +500,7 @@ class VerificationNetwork(nn.Module):
             # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"
 
             # last layer, minimise
-            lower_bound = min(lower_bounds[-1][0])
+            lower_bound = min(lower_bounds[-1][0])#todo fix the second index to the true one
             upper_bound = max(upper_bounds[-1][0])
             assert lower_bound <= upper_bound
             v = gurobi_model.addVar(lb=lower_bound, ub=upper_bound, obj=0,
