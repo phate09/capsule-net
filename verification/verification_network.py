@@ -4,6 +4,9 @@ import gurobipy as grb
 import numpy as np
 import torch
 from torch import nn as nn
+import os
+import pickle
+import hashlib
 
 from plnn.flatten import Flatten
 
@@ -141,8 +144,24 @@ class VerificationNetwork(nn.Module):
             layers.append(self.attach_property_layers(true_class_index))
             layer_idx = 1
             for layer in layers:
-                # print(f'layer_idx={layer_idx}')
-                # layer = model.layers[0]
+
+                file_name = hashlib.sha224(domain.numpy().view(np.uint8)).hexdigest()
+                if os.path.isfile(f'./data/{file_name}-{layer_idx}.mps'):
+                    print(f'opening {file_name}-{layer_idx}')
+                    with open(f'./data/{file_name}-{layer_idx}.lb', 'rb') as f_lb:
+                        new_layer_lb = pickle.load(f_lb)
+                    with open(f'./data/{file_name}-{layer_idx}.ub', 'rb') as f_ub:
+                        new_layer_ub = pickle.load(f_ub)
+                    gurobi_model = grb.read(f'./data/{file_name}-{layer_idx}.mps')
+                    new_layer_gurobi_vars = np.asarray([x for x in gurobi_model.getVars() if x.VarName.startswith(f'lay{layer_idx}')],dtype=grb.Var)
+                    new_layer_gurobi_vars=new_layer_gurobi_vars.reshape(new_layer_lb.shape)
+                    # new_layer_gurobi_vars = np.ndarray(new_layer_lb.shape, dtype=grb.Var)
+                    # new_layer_gurobi_vars = pickle.load(f'./data/{file_name}-{layer_idx}.lp')
+                    lower_bounds.append(new_layer_lb)
+                    upper_bounds.append(new_layer_ub)
+                    gurobi_vars.append(new_layer_gurobi_vars)
+                    layer_idx += 1
+                    continue
 
                 if type(layer) is nn.Linear:
                     previous_layer_size = np.array(gurobi_vars[-1].shape)
@@ -214,6 +233,7 @@ class VerificationNetwork(nn.Module):
                             new_layer_lb[prev_layer_row][row] = lb
                             new_layer_ub[prev_layer_row][row] = ub
                             new_layer_gurobi_vars[prev_layer_row][row] = v
+
                     lower_bounds.append(new_layer_lb)
                     upper_bounds.append(new_layer_ub)
                     gurobi_vars.append(new_layer_gurobi_vars)
@@ -314,7 +334,7 @@ class VerificationNetwork(nn.Module):
                                                         ub=max(0, pre_ub),
                                                         obj=0,
                                                         vtype=grb.GRB.CONTINUOUS,
-                                                        name=f'ReLU{layer_idx}_{row}_{col}')
+                                                        name=f'lay{layer_idx}_{channel}_{row}_{col}')
                                 if pre_lb >= 0 and pre_ub >= 0:
                                     # The ReLU is always passing
                                     gurobi_model.addConstr(v == pre_var)
@@ -342,6 +362,8 @@ class VerificationNetwork(nn.Module):
                         new_layer_lb = new_layer_lb.squeeze(axis=0)
                         new_layer_ub = new_layer_ub.squeeze(axis=0)
                         new_layer_gurobi_vars = new_layer_gurobi_vars.squeeze(axis=0)
+
+                    gurobi_model.update()
                     lower_bounds.append(new_layer_lb)
                     upper_bounds.append(new_layer_ub)
                     gurobi_vars.append(new_layer_gurobi_vars)
@@ -410,8 +432,15 @@ class VerificationNetwork(nn.Module):
 
                     new_layer_lb = old_layer_lb.flatten()
                     new_layer_ub = old_layer_ub.flatten()
-                    new_layer_gurobi_vars = old_layer_gurobi_vars.flatten()
-
+                    new_layer_gurobi_vars = np.ndarray(new_layer_ub.shape,grb.Var)# old_layer_gurobi_vars.flatten()
+                    index = 0
+                    for var in old_layer_gurobi_vars.flatten():
+                        v = gurobi_model.addVar(lb=var.lb, ub=var.ub, obj=0,
+                                            vtype=grb.GRB.CONTINUOUS,
+                                            name=f'lay{layer_idx}_{index}')
+                        new_layer_gurobi_vars[index]=v
+                        index += 1
+                    gurobi_model.update()
                     lower_bounds.append(new_layer_lb)
                     upper_bounds.append(new_layer_ub)
                     gurobi_vars.append(new_layer_gurobi_vars)
@@ -494,7 +523,13 @@ class VerificationNetwork(nn.Module):
                     print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
                 else:
                     raise Exception('Type of layer not supported')
-
+                with open(f'./data/{file_name}-{layer_idx}.ub', 'wb') as f_ub:
+                    pickle.dump(new_layer_ub,f_ub)
+                with open(f'./data/{file_name}-{layer_idx}.lb', 'wb') as f_lb:
+                    pickle.dump(new_layer_lb,f_lb)
+                gurobi_model.ModelName = f'{file_name}'
+                gurobi_model.update()
+                gurobi_model.write(f'./data/{file_name}-{layer_idx}.mps')
                 layer_idx += 1
             # Assert that this is as expected a network with a single output
             # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"

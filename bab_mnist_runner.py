@@ -51,13 +51,13 @@ verification_model.to(device)
 # result2 = convL(data)
 # im2col.im2col_indices(data.cpu().numpy(),)
 
-epsilon = 1e-2
+epsilon = 1e-5
 decision_bound = 0
 successes = 0
 attempts = 0
 last_result = ""
 for data, target in iter(test_loader):
-    domain_raw = generate_domain(data, 0.001)
+    domain_raw = generate_domain(data, 1e-4)
     domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)
     attempts += 1

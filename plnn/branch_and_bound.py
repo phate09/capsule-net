@@ -124,7 +124,10 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
         # TODO: This current implementation is only a global lower bound
         #       if we sort domains by lower_bound.
         if len(domains) > 0:
+            print(f'----------------------------------')
+            print(f'remaining domains: {len(domains)}')
             global_lb = domains[0].lower_bound
+            print(f'global_lb:{global_lb}')
         else:
             # if there is no more domains, we have pruned them all.
             global_lb = global_ub - eps
