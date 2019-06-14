@@ -42,7 +42,7 @@ class CandidateDomain:
         return dom_area
 
 
-def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=None):
+def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=None, save=True):
     '''
     Uses branch and bound algorithm to evaluate the global minimum
     of a given neural network.
@@ -67,8 +67,14 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
     domain_width = domain_width.contiguous().unsqueeze(4).expand(domain.size())
 
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
-    global_lb = net.get_lower_bound(domain, true_class_index)
+    global_lb = net.get_lower_bound(domain, true_class_index, save)
     assert global_lb <= global_ub, "lb must be lower than ub"
+    # Stopping criterion
+    if (decision_bound is not None) and (global_lb >= decision_bound):
+        return global_lb, global_ub, global_ub_point
+    elif global_ub < decision_bound:
+        return global_lb, global_ub, global_ub_point
+
     # Use objects of type CandidateDomain to store domains with their bounds.
     candidate_domain = CandidateDomain(lb=global_lb, ub=global_ub,
                                        dm=normed_domain)
@@ -89,7 +95,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
             # Find the upper and lower bounds on the minimum in dom_i
             dom_i = domain_lb + domain_width * ndom_i
             dom_ub_point, dom_ub = net.get_upper_bound(dom_i, true_class_index)
-            dom_lb = net.get_lower_bound(dom_i, true_class_index)
+            dom_lb = net.get_lower_bound(dom_i, true_class_index, save)
             assert dom_lb <= dom_ub, "lb must be lower than ub"
             # Update the global upper if the new upper bound found is lower.
             if dom_ub < global_ub:

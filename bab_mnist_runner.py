@@ -7,7 +7,7 @@ from plnn.branch_and_bound import bab
 from plnn.mnist_basic import Net
 from verification.verification_network import VerificationNetwork
 
-use_cuda = True
+use_cuda = False
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
 
 

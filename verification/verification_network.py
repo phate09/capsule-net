@@ -95,7 +95,7 @@ class VerificationNetwork(nn.Module):
                                idx.item())  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
         return ub_point, upper_bound.item()
 
-    def get_lower_bound(self, domain, true_class_index):
+    def get_lower_bound(self, domain, true_class_index, save=True):
         '''
         input_domain: Tensor containing in each row the lower and upper bound
                       for the corresponding dimension
@@ -153,6 +153,9 @@ class VerificationNetwork(nn.Module):
                     with open(f'./data/{file_name}-{layer_idx}.ub', 'rb') as f_ub:
                         new_layer_ub = pickle.load(f_ub)
                     gurobi_model = grb.read(f'./data/{file_name}-{layer_idx}.mps')
+                    gurobi_model.setParam('OutputFlag', False)
+                    gurobi_model.setParam('Threads', 1)
+                    gurobi_model.update()
                     new_layer_gurobi_vars = np.asarray([x for x in gurobi_model.getVars() if x.VarName.startswith(f'lay{layer_idx}')],dtype=grb.Var)
                     new_layer_gurobi_vars=new_layer_gurobi_vars.reshape(new_layer_lb.shape)
                     # new_layer_gurobi_vars = np.ndarray(new_layer_lb.shape, dtype=grb.Var)
@@ -523,13 +526,14 @@ class VerificationNetwork(nn.Module):
                     print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
                 else:
                     raise Exception('Type of layer not supported')
-                with open(f'./data/{file_name}-{layer_idx}.ub', 'wb') as f_ub:
-                    pickle.dump(new_layer_ub,f_ub)
-                with open(f'./data/{file_name}-{layer_idx}.lb', 'wb') as f_lb:
-                    pickle.dump(new_layer_lb,f_lb)
-                gurobi_model.ModelName = f'{file_name}'
-                gurobi_model.update()
-                gurobi_model.write(f'./data/{file_name}-{layer_idx}.mps')
+                if save:
+                    with open(f'./data/{file_name}-{layer_idx}.ub', 'wb') as f_ub:
+                        pickle.dump(new_layer_ub,f_ub)
+                    with open(f'./data/{file_name}-{layer_idx}.lb', 'wb') as f_lb:
+                        pickle.dump(new_layer_lb,f_lb)
+                    gurobi_model.ModelName = f'{file_name}'
+                    gurobi_model.update()
+                    gurobi_model.write(f'./data/{file_name}-{layer_idx}.mps')
                 layer_idx += 1
             # Assert that this is as expected a network with a single output
             # assert len(gurobi_vars[-1]) == 1, "Network doesn't have scalar output"

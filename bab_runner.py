@@ -1,14 +1,13 @@
-from plnn.branch_and_bound import CandidateDomain, bab
-from plnn.mini_net import Net
 import torch
-import torch.nn as nn
-from torchvision.datasets.mnist import MNIST
 import torch.utils.data
 from torchvision import datasets, transforms
+from torchvision.datasets.mnist import MNIST
 
+from plnn.branch_and_bound import bab
+from plnn.mini_net import Net
 from verification.verification_network import VerificationNetwork
 
-use_cuda = True
+use_cuda = False
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
 
 
@@ -17,7 +16,7 @@ def generate_domain(input_tensor, eps_size):
 
 
 model = Net()
-model.load_state_dict(torch.load('save/mini_net.pt'))
+model.load_state_dict(torch.load('save/mini_net.pt', map_location='cpu'))
 dataset = MNIST('./data', train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),
@@ -38,20 +37,20 @@ data, target = next(iter(test_loader))
 data = data.to(device)
 target = target.to(device)
 print(f'data size:{data.size()}')
-domain_raw = generate_domain(data, 0.001)
-data_size = data.size()
-verification_model = VerificationNetwork()
+
+verification_model = VerificationNetwork(model)
 verification_model.to(device)
 
-epsilon = 1e-2
+epsilon = 1e-5
 decision_bound = 0
 successes = 0
 attempts = 0
 last_result = ""
+max_samples =1000
 for data, target in iter(test_loader):
-    domain_raw = generate_domain(data, 0.001)
-    domain = domain_raw.to(device)
-    min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)
+    domain_raw = generate_domain(data, 1e-1)
+    domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
+    min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound,save=False)
     attempts += 1
     if min_lb >= 0:
         successes += 1
@@ -61,5 +60,12 @@ for data, target in iter(test_loader):
         # print(ub_point)
     else:
         print("Unknown")  # 18
-    print(f'\rRunning percentage: {successes / attempts:.02%}, {attempts}/{len(test_loader)}, last result:{last_result}', end="")
+    print(f'\rRunning percentage: {successes / attempts:.02%}, {attempts}/{min(len(test_loader),max_samples)}, last result:{last_result}', end="   ")
+    if attempts >=max_samples:
+        break
 print(f'Final percentage: {successes / attempts:.02%}')
+# 1e-1 = 90.10%
+# 1e-2 = 91.40%
+# 1e-3 = 91.60%
+# 1e-4 = 91.60%
+# 1e-5 = 91.60%
