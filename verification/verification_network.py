@@ -10,7 +10,7 @@ import hashlib
 
 from plnn.flatten import Flatten
 
-use_cuda = True
+use_cuda = False
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
 
 
