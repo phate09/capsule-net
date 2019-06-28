@@ -23,14 +23,14 @@ class Net(nn.Module):
         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
         # self.fc2 = nn.Linear(500, 10)
         self.layers = [
-            nn.Conv2d(1, 5, 3),
+            nn.Conv2d(1, 5, (3,5)),
             nn.ReLU(),
             nn.Conv2d(5, 5, 3),
             nn.ReLU(),
             nn.Conv2d(5, 5, 3),  # (22*22*5)
             nn.ReLU(),
             Flatten(),
-            nn.Linear(880, 2)
+            nn.Linear(800, 2)
             # nn.Conv2d(1, 5, 3),
             # nn.ReLU(),
             # Flatten(),
@@ -58,14 +58,14 @@ def train(args, model, device, train_loader, optimizer, epoch):
                        100. * batch_idx / len(train_loader), loss.item()))
 
 
-def test(args, model, device, test_loader):
+def test(args, model, device, test_loader, flatten=False):
     model.eval()  # evaluation mode
     test_loss = 0
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
+            output = model(data.transpose(3,2).contiguous().view(128,-1) if flatten else data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -77,9 +77,9 @@ def test(args, model, device, test_loader):
         100. * correct / len(test_loader.dataset)))
 
 
-def get_weights(net: Net, inp_shape=(28, 28, 1)):
+def get_weights(net: Net, inp_shape=(1, 28, 28)):
     model = net
-    temp_weights = [layer.get_weights() for layer in model.layers]
+    temp_weights = [(layer.weight, layer.bias) if hasattr(layer, 'weight') else [] for layer in model.layers]
     new_params = []
     eq_weights = []
     cur_size = inp_shape
@@ -88,26 +88,26 @@ def get_weights(net: Net, inp_shape=(28, 28, 1)):
             W, b = p
             eq_weights.append([])
             if len(W.shape) == 2:  # FC
-                eq_weights.append([W, b])
+                eq_weights.append([W.data.cpu().numpy(), b.data.cpu().numpy()])
             else:  # Conv
-                new_size = (cur_size[0] - W.shape[0] + 1, cur_size[1] - W.shape[1] + 1, W.shape[-1])
+                new_size = (W.shape[0], cur_size[-2] - W.shape[-2] + 1, cur_size[-1] - W.shape[-1] + 1)
                 flat_inp = np.prod(cur_size)
                 flat_out = np.prod(new_size)
                 new_params.append(flat_out)
-                W_flat = np.zeros((flat_inp, flat_out))
+                W_flat = np.zeros((flat_out, flat_inp))
                 b_flat = np.zeros((flat_out))
-                m, n, p = cur_size
-                d, e, f = new_size
+                p, n, m = cur_size
+                f, e, d = new_size
                 for x in range(d):
                     for y in range(e):
                         for z in range(f):
                             b_flat[e * f * x + f * y + z] = b[z]
                             for k in range(p):
-                                for idx0 in range(W.shape[0]):
-                                    for idx1 in range(W.shape[1]):
+                                for idx0 in range(W.shape[-2]):
+                                    for idx1 in range(W.shape[-1]):
                                         i = idx0 + x
                                         j = idx1 + y
-                                        W_flat[n * p * i + p * j + k, e * f * x + f * y + z] = W[idx0, idx1, k, z]
+                                        W_flat[e * f * x + f * y + z, n * p * i + p * j + k] = W[z, k, idx0, idx1]
                 eq_weights.append([W_flat, b_flat])
                 cur_size = new_size
     print('Weights found')
@@ -129,7 +129,7 @@ def main():
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
+    parser.add_argument('--seed', type=int, default=0, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
@@ -157,6 +157,31 @@ def main():
 
     if (args.save_model):
         torch.save(model.state_dict(), "../../save/conv_net.pt")
+
+    model = Net().to('cpu')
+    model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
+    model.to(device)
+    test(args, model, device, my_dataloader, flatten=False)
+    eq_weights, new_params = get_weights(model, inp_shape=(1, 14, 28))
+    layers = []
+    for i in range(len(eq_weights)):
+        try:
+            print(eq_weights[i][0].shape)
+        except:
+            continue
+        out_features, in_features = eq_weights[i][0].shape
+        layer = nn.Linear(in_features, out_features)
+        layer.weight.data = torch.from_numpy(eq_weights[i][0].astype(np.float32))
+        layer.bias.data = torch.from_numpy(eq_weights[i][1].astype(np.float32))
+        layers.append(layer)
+        if i != len(eq_weights) - 1:
+            layers.append(nn.ReLU())
+    sequential = nn.Sequential(*layers)
+    model.layers = layers
+    model.sequential = sequential
+    model.to(device)
+    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    test(args, model, device, my_dataloader, flatten=True)
 
 
 if __name__ == '__main__':

@@ -14,39 +14,12 @@ from black_white_generator import BlackWhite
 from plnn.simplified.conv_net import Net
 
 
-def get_weights(net: Net, inp_shape=(1, 14, 28)):
+def get_weights(net: Net, inp_shape=(1, 28, 28)):
     model = net
     temp_weights = [(layer.weight, layer.bias) if hasattr(layer, 'weight') else [] for layer in model.layers]
     new_params = []
     eq_weights = []
     cur_size = inp_shape
-    # for p in temp_weights:
-    #     if len(p) > 0:
-    #         W, b = p
-    #         eq_weights.append([])
-    #         if len(W.shape) == 2: #FC
-    #             eq_weights.append([W.data.transpose(1, 0).cpu().numpy(), b.data.cpu().numpy()])
-    #         else: # Conv
-    #             new_size = (cur_size[0]-W.shape[0]+1, cur_size[1]-W.shape[1]+1, W.shape[-1])
-    #             flat_inp = np.prod(cur_size)
-    #             flat_out = np.prod(new_size)
-    #             new_params.append(flat_out)
-    #             W_flat = np.zeros((flat_inp, flat_out))
-    #             b_flat = np.zeros((flat_out))
-    #             m,n,p = cur_size
-    #             d,e,f = new_size
-    #             for x in range(d):
-    #                 for y in range(e):
-    #                     for z in range(f):
-    #                         b_flat[e*f*x+f*y+z] = b[z]
-    #                         for k in range(p):
-    #                             for idx0 in range(W.shape[0]):
-    #                                 for idx1 in range(W.shape[1]):
-    #                                     i = idx0 + x
-    #                                     j = idx1 + y
-    #                                     W_flat[n*p*i+p*j+k, e*f*x+f*y+z]=W[idx0, idx1, k, z]
-    #             eq_weights.append([W_flat, b_flat])
-    #             cur_size = new_size
     for p in temp_weights:
         if len(p) > 0:
             W, b = p
@@ -85,7 +58,7 @@ def test(args, model, device, test_loader, flatten=False):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data.view(128, -1) if flatten else data)
+            output = model(data.transpose(3,2).contiguous().view(128,-1) if flatten else data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -124,7 +97,7 @@ def main():
     torch.manual_seed(args.seed)
 
     device = torch.device("cuda" if use_cuda else "cpu")
-    black_white = BlackWhite(shape=(1, 14, 28))
+    black_white = BlackWhite(shape=(1, 28, 28))
 
     my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
     my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True, drop_last=True)  # create your dataloader
@@ -133,7 +106,7 @@ def main():
     model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
     model.to(device)
     test(args, model, device, my_dataloader,flatten=False)
-    eq_weights, new_params = get_weights(model, inp_shape=(1, 14, 28))
+    eq_weights, new_params = get_weights(model, inp_shape=(1, 28, 28))
     layers = []
     for i in range(len(eq_weights)):
         try:
