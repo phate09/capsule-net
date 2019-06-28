@@ -147,7 +147,7 @@ class VerificationNetwork(nn.Module):
 
                 file_name = hashlib.sha224(domain.numpy().view(np.uint8)).hexdigest()
                 if os.path.isfile(f'./data/{file_name}-{layer_idx}.mps'):
-                    print(f'opening {file_name}-{layer_idx}')
+                    # print(f'opening {file_name}-{layer_idx}')
                     with open(f'./data/{file_name}-{layer_idx}.lb', 'rb') as f_lb:
                         new_layer_lb = pickle.load(f_lb)
                     with open(f'./data/{file_name}-{layer_idx}.ub', 'rb') as f_ub:
@@ -427,7 +427,7 @@ class VerificationNetwork(nn.Module):
                     gurobi_vars.append(new_layer_gurobi_vars)
                     t1_stop = time.perf_counter()
                     t2_stop = time.process_time()
-                    print(f"End MaxPool2d{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
+                    # print(f"End MaxPool2d{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
                 elif type(layer) == Flatten:
                     old_layer_lb = lower_bounds[-1]
                     old_layer_ub = upper_bounds[-1]
@@ -449,7 +449,7 @@ class VerificationNetwork(nn.Module):
                     gurobi_vars.append(new_layer_gurobi_vars)
 
                 elif type(layer) == nn.Conv2d:
-                    print(f"Start Conv2d_{layer_idx}")
+                    # print(f"Start Conv2d_{layer_idx}")
                     old_layer_lb = lower_bounds[-1]
                     old_layer_ub = upper_bounds[-1]
                     old_layer_gurobi_vars = gurobi_vars[-1]
@@ -523,7 +523,7 @@ class VerificationNetwork(nn.Module):
                     gurobi_vars.append(new_layer_gurobi_vars)
                     t1_stop = time.perf_counter()
                     t2_stop = time.process_time()
-                    print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
+                    # print(f"End Conv2d_{layer_idx} {((t1_stop - t1_start)):.1f} [sec]")
                 else:
                     raise Exception('Type of layer not supported')
                 if save:

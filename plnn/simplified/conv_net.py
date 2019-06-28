@@ -10,7 +10,6 @@ import torch.optim as optim
 import torch.utils
 import torch.utils.data
 import torch.utils.data as utils
-from torchvision import datasets, transforms
 
 from black_white_generator import BlackWhite
 from plnn.flatten import Flatten
@@ -24,11 +23,14 @@ class Net(nn.Module):
         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
         # self.fc2 = nn.Linear(500, 10)
         self.layers = [
-            nn.Conv2d(1, 20, 5, 1),
-            Flatten(),
-            nn.Linear(5120, 10),
+            nn.Conv2d(1, 5, 3),
             nn.ReLU(),
-            nn.Linear(10, 2)
+            nn.Conv2d(5, 5, 3),
+            nn.ReLU(),
+            nn.Conv2d(5, 5, 3),  # (22*22*5)
+            nn.ReLU(),
+            Flatten(),
+            nn.Linear(2420, 2)
         ]
         self.sequential = nn.Sequential(*self.layers)
 
@@ -71,6 +73,43 @@ def test(args, model, device, test_loader):
         100. * correct / len(test_loader.dataset)))
 
 
+def get_weights(net: Net, inp_shape=(28, 28, 1)):
+    model = net
+    temp_weights = [layer.get_weights() for layer in model.layers]
+    new_params = []
+    eq_weights = []
+    cur_size = inp_shape
+    for p in temp_weights:
+        if len(p) > 0:
+            W, b = p
+            eq_weights.append([])
+            if len(W.shape) == 2:  # FC
+                eq_weights.append([W, b])
+            else:  # Conv
+                new_size = (cur_size[0] - W.shape[0] + 1, cur_size[1] - W.shape[1] + 1, W.shape[-1])
+                flat_inp = np.prod(cur_size)
+                flat_out = np.prod(new_size)
+                new_params.append(flat_out)
+                W_flat = np.zeros((flat_inp, flat_out))
+                b_flat = np.zeros((flat_out))
+                m, n, p = cur_size
+                d, e, f = new_size
+                for x in range(d):
+                    for y in range(e):
+                        for z in range(f):
+                            b_flat[e * f * x + f * y + z] = b[z]
+                            for k in range(p):
+                                for idx0 in range(W.shape[0]):
+                                    for idx1 in range(W.shape[1]):
+                                        i = idx0 + x
+                                        j = idx1 + y
+                                        W_flat[n * p * i + p * j + k, e * f * x + f * y + z] = W[idx0, idx1, k, z]
+                eq_weights.append([W_flat, b_flat])
+                cur_size = new_size
+    print('Weights found')
+    return eq_weights, new_params
+
+
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -99,12 +138,13 @@ def main():
     torch.manual_seed(args.seed)
 
     device = torch.device("cuda" if use_cuda else "cpu")
-    black_white = BlackWhite()
+    black_white = BlackWhite(shape=(1, 28, 28))
 
     my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
     my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True)  # create your dataloader
 
     model = Net().to(device)
+    # get_weights(model, inp_shape=(1, 28, 28))
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
     for epoch in range(1, args.epochs + 1):

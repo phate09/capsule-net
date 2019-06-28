@@ -22,7 +22,7 @@ model.load_state_dict(torch.load('save/conv_net.pt', map_location='cpu'))
 black_white = BlackWhite()
 
 dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
-test_loader = utils.DataLoader(dataset, batch_size=1, shuffle=True)  # create your dataloader
+test_loader = utils.DataLoader(dataset, batch_size=1, shuffle=False)  # create your dataloader
 # test_loader = torch.utils.data.DataLoader(dataset, batch_size=1)#retrieve items 1 at a time
 seed = 0
 
@@ -46,12 +46,14 @@ verification_model.to(device)
 # im2col.im2col_indices(data.cpu().numpy(),)
 
 epsilon = 1e-5
+delta = 5e-1
 decision_bound = 0
 successes = 0
 attempts = 0
 last_result = ""
+print(f'Delta: {delta}')
 for data, target in iter(test_loader):
-    domain_raw = generate_domain(data, 1e-4)
+    domain_raw = generate_domain(data, delta)
     domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound,save=False)
     attempts += 1
@@ -63,5 +65,5 @@ for data, target in iter(test_loader):
         # print(ub_point)
     else:
         print("Unknown")  # 18
-    print(f'\rRunning percentage: {successes / attempts:.02%}, {attempts}/{len(test_loader)}, last result:{last_result}', end="")
+    print(f'\rRunning percentage: {successes / attempts:.02%}, {attempts}/{len(test_loader)}, last result:{last_result}')#, end="")
 print(f'Final percentage: {successes / attempts:.02%}')

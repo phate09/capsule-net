@@ -1,8 +1,8 @@
 import bisect
-import math
+
 import torch
 
-use_cuda = True
+use_cuda = False
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
 
 
@@ -69,6 +69,8 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
     global_lb = net.get_lower_bound(domain, true_class_index, save)
     assert global_lb <= global_ub, "lb must be lower than ub"
+    print(f'global_ub:{global_ub}')
+    print(f'global_lb:{global_lb}')
     # Stopping criterion
     if (decision_bound is not None) and (global_lb >= decision_bound):
         return global_lb, global_ub, global_ub_point
@@ -87,20 +89,24 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
         # Pick a domain to branch over and remove that from our current list of
         # domains. Also potentially perform some pruning on the way.
         selected_candidate_domain = pick_out(domains, global_ub - eps)
-
+        print(f'Splitting domain')
         # Genearate new, smaller (normalized) domains using box split.
         ndoms = box_split(selected_candidate_domain.domain)
 
-        for ndom_i in ndoms:
+        for i, ndom_i in enumerate(ndoms):
+            print(f'Domain #{i}')
             # Find the upper and lower bounds on the minimum in dom_i
             dom_i = domain_lb + domain_width * ndom_i
             dom_ub_point, dom_ub = net.get_upper_bound(dom_i, true_class_index)
             dom_lb = net.get_lower_bound(dom_i, true_class_index, save)
+            print(f'dom_ub:{dom_ub}')
+            print(f'dom_lb:{dom_lb}')
             assert dom_lb <= dom_ub, "lb must be lower than ub"
             # Update the global upper if the new upper bound found is lower.
             if dom_ub < global_ub:
                 global_ub = dom_ub
                 global_ub_point = dom_ub_point
+                print(f'updated global_ub to {global_ub}')
 
             # Add the domain to our current list of domains if its lowerbound
             # is less than the global upperbound.
@@ -132,7 +138,10 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
         if len(domains) > 0:
             print(f'----------------------------------')
             print(f'remaining domains: {len(domains)}')
+            print(f'lbs:{[i.lower_bound for i in domains]}')
             global_lb = domains[0].lower_bound
+            # print(f'first domain lb: {domains[0].lower_bound}')
+            # global_lb = max([i.lower_bound for i in domains])
             print(f'global_lb:{global_lb}')
         else:
             # if there is no more domains, we have pruned them all.
@@ -143,7 +152,7 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
             break
         elif global_ub < decision_bound:
             break
-
+    print(f'Reached a decision')
     return global_lb, global_ub, global_ub_point
 
 
