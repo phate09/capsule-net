@@ -23,14 +23,18 @@ class Net(nn.Module):
         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
         # self.fc2 = nn.Linear(500, 10)
         self.layers = [
+            # nn.Conv2d(1, 5, 3),
+            # nn.ReLU(),
+            # nn.Conv2d(5, 5, 3),
+            # nn.ReLU(),
+            # nn.Conv2d(5, 5, 3),  # (22*22*5)
+            # nn.ReLU(),
+            # Flatten(),
+            # nn.Linear(2420, 2)
             nn.Conv2d(1, 5, 3),
             nn.ReLU(),
-            nn.Conv2d(5, 5, 3),
-            nn.ReLU(),
-            nn.Conv2d(5, 5, 3),  # (22*22*5)
-            nn.ReLU(),
             Flatten(),
-            nn.Linear(2420, 2)
+            nn.Linear(26*26*5,2)
         ]
         self.sequential = nn.Sequential(*self.layers)
 
