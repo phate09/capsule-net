@@ -23,18 +23,18 @@ class Net(nn.Module):
         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
         # self.fc2 = nn.Linear(500, 10)
         self.layers = [
-            # nn.Conv2d(1, 5, 3),
-            # nn.ReLU(),
-            # nn.Conv2d(5, 5, 3),
-            # nn.ReLU(),
-            # nn.Conv2d(5, 5, 3),  # (22*22*5)
-            # nn.ReLU(),
-            # Flatten(),
-            # nn.Linear(2420, 2)
             nn.Conv2d(1, 5, 3),
             nn.ReLU(),
+            nn.Conv2d(5, 5, 3),
+            nn.ReLU(),
+            nn.Conv2d(5, 5, 3),  # (22*22*5)
+            nn.ReLU(),
             Flatten(),
-            nn.Linear(26*26*5,2)
+            nn.Linear(880, 2)
+            # nn.Conv2d(1, 5, 3),
+            # nn.ReLU(),
+            # Flatten(),
+            # nn.Linear(784,2)
         ]
         self.sequential = nn.Sequential(*self.layers)
 
@@ -142,10 +142,10 @@ def main():
     torch.manual_seed(args.seed)
 
     device = torch.device("cuda" if use_cuda else "cpu")
-    black_white = BlackWhite(shape=(1, 28, 28))
+    black_white = BlackWhite(shape=(1, 14, 28))
 
     my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
-    my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True)  # create your dataloader
+    my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True,drop_last=True)  # create your dataloader
 
     model = Net().to(device)
     # get_weights(model, inp_shape=(1, 28, 28))
