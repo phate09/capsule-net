@@ -3,7 +3,7 @@ import tensorflow
 import torch.nn
 import torch.nn
 
-from plnn.simplified.conv_net import Net
+from plnn.simplified.conv_net2 import Net
 from plnn.simplified.conv_net_convert import convert_conv2d
 '''This test shows that the conversion between tensorflow and pytorch works as expected, difference should be negligible'''
 
@@ -49,11 +49,11 @@ print(numpy.abs(t - l).max())  # number should be negligible
 input_size = (1, 28, 28)
 weights, params,new_size = convert_conv2d(x.weight, x.bias,input_size )
 W, b = weights
-x = torch.nn.Linear(784, 3380)  # doesn't matter
-x.weight.data = torch.from_numpy(W)
-x.bias.data = torch.from_numpy(b)
-l = x(torch.from_numpy(z).flatten()).detach().numpy()
-l = numpy.reshape(l, (1, 26, 26, 5))  # .transpose(l, (0, 2, 3, 1))
+x2 = torch.nn.Linear(784, 3380)  # doesn't matter
+x2.weight.data = torch.from_numpy(W)
+x2.bias.data = torch.from_numpy(b)
+l2 = x2(torch.from_numpy(z).flatten()).detach().numpy()
+l2 = numpy.reshape(l2, (1, 26, 26, 5))  # .transpose(l, (0, 2, 3, 1))
 print(t.shape)
-print(l.shape)
-print(numpy.abs(t - l).max())  # number should be negligible
+print(l2.shape)
+print(numpy.abs(t - l2).max())  # number should be negligible
