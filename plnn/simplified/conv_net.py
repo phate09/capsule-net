@@ -77,44 +77,6 @@ def test(args, model, device, test_loader, flatten=False):
         100. * correct / len(test_loader.dataset)))
 
 
-def get_weights(net: Net, inp_shape=(28,28,1)):
-    model = net
-    temp_weights = [(layer.weight.data, layer.bias.data) if hasattr(layer, 'weight') else [] for layer in model.layers]
-    new_params = []
-    eq_weights = []
-    cur_size = inp_shape
-    for p in temp_weights:
-        if len(p) > 0:
-            W:torch.Tensor
-            W, b = p
-            eq_weights.append([])
-            if len(W.shape) == 2:  # FC
-                eq_weights.append([W.cpu().numpy().transpose(1,0), b.cpu().numpy()])
-            else:  # Conv
-                W = W.cpu().numpy().transpose(2,3,1,0)
-                new_size = (cur_size[0] - W.shape[0] + 1, cur_size[1] - W.shape[1] + 1, W.shape[-1])
-                flat_inp = np.prod(cur_size)
-                flat_out = np.prod(new_size)
-                new_params.append(flat_out)
-                W_flat = np.zeros((flat_inp, flat_out))
-                b_flat = np.zeros((flat_out))
-                m, n, p = cur_size
-                d, e, f = new_size
-                for x in range(d):
-                    for y in range(e):
-                        for z in range(f):
-                            b_flat[e * f * x + f * y + z] = b[z]
-                            for k in range(p):
-                                for idx0 in range(W.shape[0]):
-                                    for idx1 in range(W.shape[1]):
-                                        i = idx0 + x
-                                        j = idx1 + y
-                                        W_flat[n * p * i + p * j + k, e * f * x + f * y + z] = W[idx0, idx1, k, z]
-                eq_weights.append([W_flat, b_flat])
-                cur_size = new_size
-    print('Weights found')
-    return eq_weights, new_params
-
 
 def main():
     # Training settings
@@ -149,42 +111,48 @@ def main():
     my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
     my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True, drop_last=True)  # create your dataloader
 
+    train_sequence(args, device, my_dataloader)
+
+    # test_sequence(args, device, my_dataloader)
+
+
+# def test_sequence(args, device, my_dataloader):
+#     model = Net().to('cpu')
+#     model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
+#     model.to(device)
+#     test(args, model, device, my_dataloader, flatten=False)
+#     eq_weights, new_params = get_weights(model.layers, inp_shape=(1, 28, 28))
+#     layers = []
+#     for i in range(len(eq_weights)):
+#         try:
+#             print(eq_weights[i][0].shape)
+#         except:
+#             continue
+#         in_features, out_features = eq_weights[i][0].shape
+#         layer = nn.Linear(in_features, out_features)
+#
+#         layer.weight.data = torch.tensor(eq_weights[i][0], dtype=torch.float)
+#         layer.bias.data = torch.tensor(eq_weights[i][1], dtype=torch.float)
+#         layers.append(layer)
+#         if i != len(eq_weights) - 1:
+#             layers.append(nn.ReLU())
+#     sequential = nn.Sequential(*layers)
+#     model.layers = layers
+#     model.sequential = sequential
+#     model.to(device)
+#     # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+#     test(None, model, device, my_dataloader, flatten=True)  # after conversion to FC layer
+
+
+def train_sequence(args, device, my_dataloader):
     model = Net().to(device)
     # get_weights(model, inp_shape=(1, 28, 28))
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, my_dataloader, optimizer, epoch)
         test(args, model, device, my_dataloader)
-
     if (args.save_model):
         torch.save(model.state_dict(), "../../save/conv_net.pt")
-
-    model = Net().to('cpu')
-    model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
-    model.to(device)
-    test(args, model, device, my_dataloader, flatten=False)
-    eq_weights, new_params = get_weights(model, inp_shape=(28, 28, 1))
-    layers = []
-    for i in range(len(eq_weights)):
-        try:
-            print(eq_weights[i][0].shape)
-        except:
-            continue
-        in_features,out_features = eq_weights[i][0].shape
-        layer = nn.Linear(in_features, out_features)
-
-        layer.weight.data = torch.tensor(eq_weights[i][0].transpose(1,0), dtype=torch.float)
-        layer.bias.data = torch.tensor(eq_weights[i][1], dtype=torch.float)
-        layers.append(layer)
-        if i != len(eq_weights) - 1:
-            layers.append(nn.ReLU())
-    sequential = nn.Sequential(*layers)
-    model.layers = layers
-    model.sequential = sequential
-    model.to(device)
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-    test(args, model, device, my_dataloader, flatten=True)
 
 
 if __name__ == '__main__':

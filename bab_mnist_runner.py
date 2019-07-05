@@ -1,10 +1,12 @@
 import torch
+import torch.nn
 import torch.utils.data
 from torchvision import datasets, transforms
 from torchvision.datasets.mnist import MNIST
 
 from plnn.branch_and_bound import bab
-from plnn.mnist_basic import Net
+from plnn.mnist_basic_cnn import Net
+from plnn.simplified.conv_net_convert import convert
 from verification.verification_network import VerificationNetwork
 
 use_cuda = False
@@ -39,7 +41,9 @@ target = target.to(device)
 print(f'data size:{data.size()}')
 domain_raw = generate_domain(data, 0.001)
 data_size = data.size()
-
+converted_layers = convert(model.layers)
+model.layers = converted_layers
+model.sequential = torch.nn.Sequential(*converted_layers)
 verification_model = VerificationNetwork(model)
 verification_model.to(device)
 # convL: torch.nn.Conv2d = verification_model.base_network.layers[0]
@@ -57,6 +61,7 @@ successes = 0
 attempts = 0
 last_result = ""
 for data, target in iter(test_loader):
+    data= data.view(1,-1)
     domain_raw = generate_domain(data, 1e-4)
     domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)

@@ -6,7 +6,7 @@ from plnn.simplified.conv_net2 import Net
 from plnn.simplified.conv_net_convert import convert_conv2d, get_weights
 
 
-def test1():
+def test1(): # DEPRECATED
     """This test ensures that the conversion between conv2d and linear works, returned value should be 0.0
     """
     batch_size = 1
@@ -121,7 +121,7 @@ def test3():
 
 
 if __name__ == '__main__':
-    test1()
+    # test1() DEPRECATED
     test1_5()
     # test2()
     # test3()

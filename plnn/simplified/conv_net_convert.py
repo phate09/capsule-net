@@ -38,8 +38,8 @@ def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
     new_params = []
     eq_weights = []
     new_size = (W.shape[0], cur_size[-2] - W.shape[-2] + 1, cur_size[-1] - W.shape[-1] + 1)
-    flat_inp = np.prod(cur_size) #m x n
-    flat_out = np.prod(new_size) #
+    flat_inp = np.prod(cur_size)  # m x n
+    flat_out = np.prod(new_size)  #
     new_params.append(flat_out)
     W_flat = np.zeros((flat_out, flat_inp))
     b_flat = np.zeros((flat_out))
@@ -48,13 +48,13 @@ def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
     for o_h in range(o_height):
         for o_w in range(o_width):
             for o_c in range(o_channel):
-                b_flat[o_width * o_channel * o_h + o_channel * o_w + o_c] = b[o_c]
+                b_flat[o_width * o_height * o_c + o_width * o_h + o_w] = b[o_c]
                 for k in range(in_channel):
                     for idx0 in range(W.shape[2]):
                         for idx1 in range(W.shape[3]):
                             i = idx0 + o_h
                             j = idx1 + o_w
-                            W_flat[o_width * o_channel * o_h + o_channel * o_w + o_c, in_width * in_channel * i + in_channel * j + k] = W[o_c, k, idx0, idx1]
+                            W_flat[o_width * o_height * o_c + o_width * o_h + o_w, in_width * in_height * k + in_width * i + j] = W[o_c, k, idx0, idx1]
     eq_weights.append([W_flat, b_flat])
     return eq_weights[0], new_params[0], new_size
 
@@ -75,6 +75,24 @@ def test(args, model, device, test_loader, flatten=False):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+
+
+def convert(input_layers):
+    eq_weights, new_params = get_weights(input_layers, inp_shape=(1, 28, 28))  # pytorch style
+    layers = []
+    for i in range(len(eq_weights)):
+        try:
+            print(eq_weights[i][0].shape)
+        except:
+            continue
+        out_features, in_features = eq_weights[i][0].shape
+        layer = nn.Linear(in_features, out_features)
+        layer.weight.data = torch.from_numpy(eq_weights[i][0].astype(np.float32))
+        layer.bias.data = torch.from_numpy(eq_weights[i][1].astype(np.float32))
+        layers.append(layer)
+        if i != len(eq_weights) - 1:
+            layers.append(nn.ReLU())
+    return layers
 
 
 def main():
@@ -114,20 +132,7 @@ def main():
     model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
     model.to(device)
     test(args, model, device, my_dataloader, flatten=False)
-    eq_weights, new_params = get_weights(model.layers, inp_shape=(1, 28, 28))  # pytorch style
-    layers = []
-    for i in range(len(eq_weights)):
-        try:
-            print(eq_weights[i][0].shape)
-        except:
-            continue
-        out_features, in_features = eq_weights[i][0].shape
-        layer = nn.Linear(in_features, out_features)
-        layer.weight.data = torch.from_numpy(eq_weights[i][0].astype(np.float32))
-        layer.bias.data = torch.from_numpy(eq_weights[i][1].astype(np.float32))
-        layers.append(layer)
-        if i != len(eq_weights) - 1:
-            layers.append(nn.ReLU())
+    layers = convert(model.layers)
     sequential = nn.Sequential(*layers)
     model.layers = layers
     model.sequential = sequential

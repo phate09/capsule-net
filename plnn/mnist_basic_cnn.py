@@ -1,18 +1,12 @@
 from __future__ import print_function
-
 import argparse
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.utils
-import torch.utils.data
-import torch.utils.data as utils
+from torchvision import datasets, transforms
 
-from black_white_generator import BlackWhite
 from plnn.flatten import Flatten
-from plnn.simplified.conv_net_convert import get_weights
 
 
 class Net(nn.Module):
@@ -21,8 +15,12 @@ class Net(nn.Module):
         self.layers = [
             nn.Conv2d(1, 5, 3),
             nn.ReLU(),
+            nn.Conv2d(5, 5, 3),
+            nn.ReLU(),
+            nn.Conv2d(5, 5, 3),  # (22*22*5)
+            nn.ReLU(),
             Flatten(),
-            nn.Linear(3380, 2)
+            nn.Linear(2420, 10)
         ]
         self.sequential = nn.Sequential(*self.layers)
 
@@ -31,13 +29,12 @@ class Net(nn.Module):
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
-    model.train()  # train mode
+    model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        # print(data.size())
         output = model(data)
-        loss = F.nll_loss(output, target.long())
+        loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
@@ -46,14 +43,14 @@ def train(args, model, device, train_loader, optimizer, epoch):
                        100. * batch_idx / len(train_loader), loss.item()))
 
 
-def test(args, model, device, test_loader, flatten=False):
-    model.eval()  # evaluation mode
+def test(args, model, device, test_loader):
+    model.eval()
     test_loss = 0
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data.contiguous().view(128, -1) if flatten else data)
+            output = model(data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -66,18 +63,13 @@ def test(args, model, device, test_loader, flatten=False):
 
 
 def main():
-    # train()
-    test_conversion()
-
-
-def train():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=256, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=2, metavar='N',
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
@@ -85,7 +77,7 @@ def train():
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=0, metavar='S',
+    parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
@@ -98,54 +90,31 @@ def train():
     torch.manual_seed(args.seed)
 
     device = torch.device("cuda" if use_cuda else "cpu")
-    black_white = BlackWhite(shape=(1, 28, 28))
 
-    my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
-    my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True, drop_last=True)  # create your dataloader
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('./data', train=True, download=True,
+                       transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('./data', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     model = Net().to(device)
-    # get_weights(model, inp_shape=(1, 28, 28))
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, my_dataloader, optimizer, epoch)
-        test(args, model, device, my_dataloader)
+        train(args, model, device, train_loader, optimizer, epoch)
+        test(args, model, device, test_loader)
 
     if (args.save_model):
-        torch.save(model.state_dict(), "../../save/conv_net.pt")
-
-
-def test_conversion():
-    model = Net().to('cpu')
-    black_white = BlackWhite(shape=(1, 28, 28))
-
-    my_dataset = utils.TensorDataset(black_white.data, black_white.target)  # create your datset
-    my_dataloader = utils.DataLoader(my_dataset, batch_size=128, shuffle=True, drop_last=True)  # create your dataloader
-    model.load_state_dict(torch.load('../../save/conv_net.pt', map_location='cpu'))
-    model.to('cpu')
-    device = torch.device("cpu")
-    test(None, model, device, my_dataloader, flatten=False)  # standard Conv2d
-    eq_weights, new_params = get_weights(model.layers, inp_shape=(1, 28, 28))
-    layers = []
-    for i in range(len(eq_weights)):
-        try:
-            print(eq_weights[i][0].shape)
-        except:
-            continue
-        in_features, out_features = eq_weights[i][0].shape
-        layer = nn.Linear(in_features, out_features)
-
-        layer.weight.data = torch.tensor(eq_weights[i][0], dtype=torch.float)
-        layer.bias.data = torch.tensor(eq_weights[i][1], dtype=torch.float)
-        layers.append(layer)
-        if i != len(eq_weights) - 1:
-            layers.append(nn.ReLU())
-    sequential = nn.Sequential(*layers)
-    model.layers = layers
-    model.sequential = sequential
-    model.to(device)
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-    test(None, model, device, my_dataloader, flatten=True)  # after conversion to FC layer
+        torch.save(model.state_dict(), "../save/mnist_cnn.pt")
 
 
 if __name__ == '__main__':
