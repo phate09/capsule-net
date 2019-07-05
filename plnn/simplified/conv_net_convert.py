@@ -38,23 +38,23 @@ def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
     new_params = []
     eq_weights = []
     new_size = (W.shape[0], cur_size[-2] - W.shape[-2] + 1, cur_size[-1] - W.shape[-1] + 1)
-    flat_inp = np.prod(cur_size)
-    flat_out = np.prod(new_size)
+    flat_inp = np.prod(cur_size) #m x n
+    flat_out = np.prod(new_size) #
     new_params.append(flat_out)
     W_flat = np.zeros((flat_out, flat_inp))
     b_flat = np.zeros((flat_out))
-    p, n, m = cur_size
-    f, e, d = new_size
-    for x in range(d):
-        for y in range(e):
-            for z in range(f):
-                b_flat[e * f * x + f * y + z] = b[z]
-                for k in range(p):
-                    for idx0 in range(W.shape[-2]):
-                        for idx1 in range(W.shape[-1]):
-                            i = idx0 + x
-                            j = idx1 + y
-                            W_flat[e * f * x + f * y + z, n * p * i + p * j + k] = W[z, k, idx0, idx1]
+    in_channel, in_height, in_width = cur_size
+    o_channel, o_height, o_width = new_size
+    for o_h in range(o_height):
+        for o_w in range(o_width):
+            for o_c in range(o_channel):
+                b_flat[o_width * o_channel * o_h + o_channel * o_w + o_c] = b[o_c]
+                for k in range(in_channel):
+                    for idx0 in range(W.shape[2]):
+                        for idx1 in range(W.shape[3]):
+                            i = idx0 + o_h
+                            j = idx1 + o_w
+                            W_flat[o_width * o_channel * o_h + o_channel * o_w + o_c, in_width * in_channel * i + in_channel * j + k] = W[o_c, k, idx0, idx1]
     eq_weights.append([W_flat, b_flat])
     return eq_weights[0], new_params[0], new_size
 
