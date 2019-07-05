@@ -61,7 +61,7 @@ successes = 0
 attempts = 0
 last_result = ""
 for data, target in iter(test_loader):
-    data= data.view(1,-1)
+    data= data.view(-1)
     domain_raw = generate_domain(data, 1e-4)
     domain = domain_raw.to(device)  # at this point is (batch channel, width, height, bound)
     min_lb, min_ub, ub_point = bab(verification_model, domain, target.item(), epsilon, decision_bound)

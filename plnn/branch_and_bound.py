@@ -63,8 +63,8 @@ def bab(net, domain: torch.Tensor, true_class_index, eps=1e-3, decision_bound=No
                                  torch.ones(nb_input_var)), 1)
     domain_lb = domain.select(-1, 0)
     domain_width = domain.select(-1, 1) - domain.select(-1, 0)
-    domain_lb = domain_lb.contiguous().unsqueeze(4).expand(domain.size())
-    domain_width = domain_width.contiguous().unsqueeze(4).expand(domain.size())
+    # domain_lb = domain_lb.contiguous().unsqueeze(4).expand(domain.size())
+    # domain_width = domain_width.contiguous().unsqueeze(4).expand(domain.size())
 
     global_ub_point, global_ub = net.get_upper_bound(domain, true_class_index)
     global_lb = net.get_lower_bound(domain, true_class_index, save)
