@@ -1,12 +1,12 @@
+import hashlib
+import os
+import pickle
 import time
 
 import gurobipy as grb
 import numpy as np
 import torch
 from torch import nn as nn
-import os
-import pickle
-import hashlib
 
 from plnn.flatten import Flatten
 
@@ -56,7 +56,7 @@ class VerificationNetwork(nn.Module):
         # print(nb_inp)
         # Not a great way of sampling but this will be good enough
         # We want to get rows that are >= 0
-        rand_samples_size = [nb_samples,nb_inp]
+        rand_samples_size = [nb_samples, nb_inp]
         rand_samples = torch.zeros(rand_samples_size).to(device)
         rand_samples.uniform_(0, 1)
         domain_lb = domain.select(-1, 0).contiguous()
@@ -104,7 +104,7 @@ class VerificationNetwork(nn.Module):
 
         batch_size = 1  # domain.size()[1]
         # for index in range(batch_size):
-        input_domain = domain # we use a single domain, not ready for parallelisation yet
+        input_domain = domain  # we use a single domain, not ready for parallelisation yet
         # print(f'input_domain.size()={input_domain.size()}')
         lower_bounds = []
         upper_bounds = []
@@ -166,10 +166,8 @@ class VerificationNetwork(nn.Module):
                 gurobi_model.setParam('OutputFlag', False)
                 gurobi_model.setParam('Threads', 1)
                 gurobi_model.update()
-                new_layer_gurobi_vars = np.asarray([x for x in gurobi_model.getVars() if x.VarName.startswith(f'lay{layer_idx}')],dtype=grb.Var)
-                new_layer_gurobi_vars=new_layer_gurobi_vars.reshape(new_layer_lb.shape)
-                # new_layer_gurobi_vars = np.ndarray(new_layer_lb.shape, dtype=grb.Var)
-                # new_layer_gurobi_vars = pickle.load(f'./data/{file_name}-{layer_idx}.lp')
+                new_layer_gurobi_vars = np.asarray([x for x in gurobi_model.getVars() if x.VarName.startswith(f'lay{layer_idx}')], dtype=grb.Var)
+                new_layer_gurobi_vars = new_layer_gurobi_vars.reshape(new_layer_lb.shape)
                 lower_bounds.append(new_layer_lb)
                 upper_bounds.append(new_layer_ub)
                 gurobi_vars.append(new_layer_gurobi_vars)
@@ -177,21 +175,12 @@ class VerificationNetwork(nn.Module):
                 continue
 
             if type(layer) is nn.Linear:
-                previous_layer_size = np.array(gurobi_vars[-1].shape)
                 weight = layer.weight
                 bias = layer.bias
                 shape = np.array(weight.shape)
-                # while len(shape) < 3:
-                #     weight = weight.unsqueeze(0)
-                #     bias = bias.unsqueeze(0)
-                #     shape = np.array(weight.shape)
                 old_layer_lb = lower_bounds[-1]
                 old_layer_ub = upper_bounds[-1]
                 old_layer_gurobi_vars = gurobi_vars[-1]
-                # while len(old_layer_lb.shape) < 2:
-                #     old_layer_lb = np.expand_dims(old_layer_lb, axis=0)
-                #     old_layer_ub = np.expand_dims(old_layer_ub, axis=0)
-                #     old_layer_gurobi_vars = np.expand_dims(old_layer_gurobi_vars, axis=0)
 
                 out_size = np.array(list(shape[:-1]))
                 out_size = out_size.astype(dtype=int)
@@ -209,6 +198,8 @@ class VerificationNetwork(nn.Module):
                         lin_expr = bias.data[row].item()  # adds the bias to the linear expression
                     for column in range(shape[1]):
                         coeff = weight.data[row][column].item()  # picks the weight between the two neurons
+                        if coeff == 0:
+                            continue
                         if coeff >= 0:
                             ub = ub + coeff * old_layer_ub[column]  # multiplies the ub
                             lb = lb + coeff * old_layer_lb[column]  # multiplies the lb
@@ -251,17 +242,9 @@ class VerificationNetwork(nn.Module):
                 weight = layer
                 bias = None
                 shape = np.array(weight.shape)
-                # while len(shape) < 3:
-                #     weight = weight.unsqueeze(0)
-                #     bias = bias.unsqueeze(0)
-                #     shape = np.array(weight.shape)
                 old_layer_lb = lower_bounds[-1]
                 old_layer_ub = upper_bounds[-1]
                 old_layer_gurobi_vars = gurobi_vars[-1]
-                # while len(old_layer_lb.shape) < 2:
-                #     old_layer_lb = np.expand_dims(old_layer_lb, axis=0)
-                #     old_layer_ub = np.expand_dims(old_layer_ub, axis=0)
-                #     old_layer_gurobi_vars = np.expand_dims(old_layer_gurobi_vars, axis=0)
 
                 out_size = np.array(list(shape[:-1]))
                 out_size = out_size.astype(dtype=int)
@@ -279,6 +262,8 @@ class VerificationNetwork(nn.Module):
                         lin_expr = bias.data[row].item()  # adds the bias to the linear expression
                     for column in range(shape[1]):
                         coeff = weight.data[row][column].item()  # picks the weight between the two neurons
+                        if coeff == 0:
+                            continue
                         if coeff >= 0:
                             ub = ub + coeff * old_layer_ub[column]  # multiplies the ub
                             lb = lb + coeff * old_layer_lb[column]  # multiplies the lb
@@ -292,10 +277,8 @@ class VerificationNetwork(nn.Module):
                                             name=f'lay{layer_idx}_{row}')
                     gurobi_model.addConstr(v == lin_expr)
                     gurobi_model.update()
-                    #     print(f'v={v}')
                     gurobi_model.setObjective(v, grb.GRB.MINIMIZE)
                     gurobi_model.optimize()
-                    #          print(f'gurobi status {gurobi_model.status}')
                     assert gurobi_model.status == 2, "LP wasn't optimally solved"
                     # We have computed a lower bound
                     lb = v.X
@@ -427,13 +410,13 @@ class VerificationNetwork(nn.Module):
 
                 new_layer_lb = old_layer_lb.flatten()
                 new_layer_ub = old_layer_ub.flatten()
-                new_layer_gurobi_vars = np.ndarray(new_layer_ub.shape,grb.Var)# old_layer_gurobi_vars.flatten()
+                new_layer_gurobi_vars = np.ndarray(new_layer_ub.shape, grb.Var)  # old_layer_gurobi_vars.flatten()
                 index = 0
                 for var in old_layer_gurobi_vars.flatten():
                     v = gurobi_model.addVar(lb=var.lb, ub=var.ub, obj=0,
-                                        vtype=grb.GRB.CONTINUOUS,
-                                        name=f'lay{layer_idx}_{index}')
-                    new_layer_gurobi_vars[index]=v
+                                            vtype=grb.GRB.CONTINUOUS,
+                                            name=f'lay{layer_idx}_{index}')
+                    new_layer_gurobi_vars[index] = v
                     index += 1
                 gurobi_model.update()
                 lower_bounds.append(new_layer_lb)
@@ -520,9 +503,9 @@ class VerificationNetwork(nn.Module):
                 raise Exception('Type of layer not supported')
             if save:
                 with open(f'./data/{file_name}-{layer_idx}.ub', 'wb') as f_ub:
-                    pickle.dump(new_layer_ub,f_ub)
+                    pickle.dump(new_layer_ub, f_ub)
                 with open(f'./data/{file_name}-{layer_idx}.lb', 'wb') as f_lb:
-                    pickle.dump(new_layer_lb,f_lb)
+                    pickle.dump(new_layer_lb, f_lb)
                 gurobi_model.ModelName = f'{file_name}'
                 gurobi_model.update()
                 gurobi_model.write(f'./data/{file_name}-{layer_idx}.mps')
