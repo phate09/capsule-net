@@ -5,13 +5,13 @@ https://arxiv.org/abs/1710.09829
 PyTorch implementation by Kenta Iwasaki @ Gram.AI.
 """
 import sys
+
 sys.setrecursionlimit(15000)
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 import numpy as np
-from torch.autograd import Variable
 
 BATCH_SIZE = 100
 NUM_CLASSES = 10
@@ -57,13 +57,17 @@ class CapsuleLayer(nn.Module):
                  range(num_capsules)])
 
     def squash(self, tensor, dim=-1):
-        squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
-        scale = squared_norm / (1 + squared_norm)
-        return scale * tensor / torch.sqrt(squared_norm)
+        norm = torch.norm(tensor, p=2, dim=dim, keepdim=True)
+        scale = norm ** 2 / (1 + norm ** 2) / (norm + 1e-8)
+        return scale * tensor
+
+        # squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
+        # scale = squared_norm / (1 + squared_norm)
+        # return scale * tensor / torch.sqrt(squared_norm)
 
     def forward(self, x):
-        if self.num_route_nodes != -1:
-            priors = x[None, :, :, None, :] @ self.route_weights[:, None, :, :, :]
+        if self.num_route_nodes != -1:#if it's not a primary capsule
+            priors = torch.matmul(x[None, :, :, None, :], self.route_weights[:, None, :, :, :])  # adds 2 dimensions and performs matrix multiplication
 
             logits = Variable(torch.zeros(*priors.size())).cuda()
             for i in range(self.num_iterations):
@@ -147,6 +151,7 @@ if __name__ == "__main__":
     from torchvision.datasets.mnist import MNIST
     from tqdm import tqdm
     import torchnet as tnt
+
     print("capsulenet")
     model = CapsuleNet()
     # model.load_state_dict(torch.load('epochs/epoch_327.pt'))
@@ -256,6 +261,7 @@ if __name__ == "__main__":
             make_grid(ground_truth, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
         reconstruction_logger.log(
             make_grid(reconstruction, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
+
 
     # def on_start(state):
     #     state['epoch'] = 327
