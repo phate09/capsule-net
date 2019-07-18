@@ -12,6 +12,7 @@ from plnn.flatten import Flatten
 
 use_cuda = False
 device = torch.device("cuda:0" if torch.cuda.is_available() and use_cuda else "cpu")
+"""Class meant for verifying capsule networks, currently work in progress"""
 
 
 class VerificationNetwork(nn.Module):
@@ -66,7 +67,7 @@ class VerificationNetwork(nn.Module):
         outs = self.forward_verif(inps, true_class_index)  # gets the input for the values
         outs_true_class_resized = outs.squeeze(1)
         upper_bound, idx = torch.min(outs_true_class_resized, dim=0)  # this returns the distance of the network output from the given class, it selects the class which is furthest from the current one
-        ub_point = inps.select(0,idx.item())  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
+        ub_point = inps.select(0, idx.item())  # torch.tensor([inps[x][idx[x]][:].cpu().numpy() for x in range(idx.size()[0])]).to(device)  # ub_point represents the input that amongst all examples returns the minimum response for the appropriate class
         return ub_point, upper_bound.item()
 
     def get_lower_bound(self, domain, true_class_index, save=True):
