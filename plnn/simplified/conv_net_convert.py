@@ -1,8 +1,12 @@
 from __future__ import print_function
 
 import argparse
+import hashlib
+import os
+import pickle
 
 import numpy as np
+import progressbar
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -37,6 +41,18 @@ def get_weights(layers, inp_shape=(1, 28, 28)):
 def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
     new_params = []
     eq_weights = []
+    file_name = hashlib.sha224(W.detach().cpu().numpy().view(np.uint8)).hexdigest()
+    folder = f"{os.getcwd()}/data/"
+    if os.path.isfile(f'{folder}{file_name}-W.pickle'):
+        with open(f'{folder}{file_name}-W.pickle', 'rb') as f_lb:
+            W_flat = pickle.load(f_lb)
+        with open(f'{folder}{file_name}-b.pickle', 'rb') as f_lb:
+            b_flat = pickle.load(f_lb)
+        with open(f'{folder}{file_name}-f_out.pickle', 'rb') as f_lb:
+            flat_out = pickle.load(f_lb)
+        with open(f'{folder}{file_name}-new_size.pickle', 'rb') as f_lb:
+            new_size = pickle.load(f_lb)
+        return [W_flat, b_flat], flat_out, new_size
     new_size = (W.shape[0], cur_size[-2] - W.shape[-2] + 1, cur_size[-1] - W.shape[-1] + 1)
     flat_inp = np.prod(cur_size)  # m x n
     flat_out = np.prod(new_size)  #
@@ -45,10 +61,14 @@ def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
     b_flat = np.zeros((flat_out))
     in_channel, in_height, in_width = cur_size
     o_channel, o_height, o_width = new_size
+    bar = progressbar.ProgressBar(prefix="Conv2d conversion ", max_value=flat_out).start()
+    progress = 0
     for o_h in range(o_height):
         for o_w in range(o_width):
             for o_c in range(o_channel):
                 b_flat[o_width * o_height * o_c + o_width * o_h + o_w] = b[o_c]
+                progress = progress + 1
+                bar.update(progress)
                 for k in range(in_channel):
                     for idx0 in range(W.shape[2]):
                         for idx1 in range(W.shape[3]):
@@ -56,6 +76,17 @@ def convert_conv2d(W, b, cur_size=(1, 28, 28)):  # works for pytorch input
                             j = idx1 + o_w
                             W_flat[o_width * o_height * o_c + o_width * o_h + o_w, in_width * in_height * k + in_width * i + j] = W[o_c, k, idx0, idx1]
     eq_weights.append([W_flat, b_flat])
+    bar.finish()
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    with open(f'{folder}{file_name}-W.pickle', 'wb') as f_ub:
+        pickle.dump(W_flat, f_ub)
+    with open(f'{folder}{file_name}-b.pickle', 'wb') as f_ub:
+        pickle.dump(b_flat, f_ub)
+    with open(f'{folder}{file_name}-f_out.pickle', 'wb') as f_ub:
+        pickle.dump(flat_out, f_ub)
+    with open(f'{folder}{file_name}-new_size.pickle', 'wb') as f_ub:
+        pickle.dump(new_size, f_ub)
     return eq_weights[0], new_params[0], new_size
 
 
