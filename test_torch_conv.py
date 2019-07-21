@@ -174,6 +174,24 @@ def test6():
     print(f'Test3 is {"NOT " if error > 1e-13 else ""}PASSED')
 
 
+def test7():
+    """testing the im2col (unfold in pytorch) algorithm for second layer of caps net"""
+    torch.set_default_dtype(torch.float64)
+    batch_size = 1
+    inp = torch.randn(batch_size, 256, 20, 20)
+    w = torch.randn(32, 256, 9, 9)
+    b = torch.ones(32)
+    inp_unf = torch.nn.functional.unfold(inp, (9, 9), stride=1)  # im2col operation
+    out_unf = inp_unf.transpose(1, 2).matmul(w.view(w.size(0), -1).t()).transpose(1, 2)
+    # out = torch.nn.functional.fold(out_unf, (7, 8), (1, 1))
+    # or equivalently (and avoiding a copy),
+    out_unf = torch.add(out_unf, b[None,::,None])
+    out = out_unf.view(1, 32, 12, 12)
+    error = (torch.nn.functional.conv2d(inp, w, bias=b, stride=1) - out).abs().max()
+    print(error)
+    print(f'Test3 is {"NOT " if error > 1e-12 else ""}PASSED')
+
+
 if __name__ == '__main__':
     # test1() DEPRECATED
     # test1_5()
@@ -181,4 +199,4 @@ if __name__ == '__main__':
     # test3()
     # test4() #not working, replacing with im2col
     # test5()
-    test6()
+    test7()
