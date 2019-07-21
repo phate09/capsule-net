@@ -185,11 +185,27 @@ def test7():
     out_unf = inp_unf.transpose(1, 2).matmul(w.view(w.size(0), -1).t()).transpose(1, 2)
     # out = torch.nn.functional.fold(out_unf, (7, 8), (1, 1))
     # or equivalently (and avoiding a copy),
-    out_unf = torch.add(out_unf, b[None,::,None])
+    out_unf = torch.add(out_unf, b[None, ::, None])
     out = out_unf.view(1, 32, 12, 12)
     error = (torch.nn.functional.conv2d(inp, w, bias=b, stride=1) - out).abs().max()
     print(error)
     print(f'Test3 is {"NOT " if error > 1e-12 else ""}PASSED')
+
+
+def test8():
+    """Testing einsum function"""
+    a = torch.randn(3, 2, 5)
+    b = torch.randn(3, 5, 3)
+    print((torch.einsum('ijk,ikl->ijl', [a, b])-(a@b)).abs().max())
+
+    torch.set_default_dtype(torch.float64)
+    a = torch.randn(100, 1152, 8)
+    b = torch.randn(10, 1152, 8, 16)
+    c = torch.einsum('ijk,ajkc->aijc', [a, b])
+    c2 = torch.matmul(a[None, :, :, None, :], b[:, None, :, :, :])
+    error = (c.view(c2.shape) - c2).abs().max()
+    print(error)
+    print(f'Test3 is {"NOT " if error > 1e-13 else ""}PASSED')
 
 
 if __name__ == '__main__':
@@ -199,4 +215,4 @@ if __name__ == '__main__':
     # test3()
     # test4() #not working, replacing with im2col
     # test5()
-    test7()
+    test8()

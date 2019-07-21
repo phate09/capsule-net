@@ -27,7 +27,7 @@ def test(model, device, test_loader):
             data, labels = data.to(device), labels.to(device)
             target = torch.eye(NUM_CLASSES).index_select(dim=0, index=labels.to("cpu")).to(device)  # one hot encoding
             classes, reconstructions = model(data)
-            test_loss = capsule_loss(data, target, classes, reconstructions)
+            test_loss += capsule_loss(data, target, classes, reconstructions)
             # test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = classes.max(1, keepdim=True)[1]  # get the index of the max log-probability
             pred_one_hot = one_hot_encode(pred.squeeze(), NUM_CLASSES).to(device)
@@ -108,10 +108,12 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     model = capsule_network.CapsuleNet().to(device)
     model.load_state_dict(torch.load('save/mnist_caps_10.pt'))
+    # model.digit_capsules.num_iterations=3
     print("# parameters:", sum(param.numel() for param in model.parameters()))
-    data, target = next(iter(test_loader))
+    # data, target = next(iter(test_loader))
     # model(data.to(device))
-    capsule_conversion(model)
+    test(model,device,test_loader)
+    # capsule_conversion(model)
     # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
 

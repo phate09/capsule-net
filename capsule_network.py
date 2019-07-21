@@ -19,12 +19,6 @@ NUM_EPOCHS = 500
 NUM_ROUTING_ITERATIONS = 3
 
 
-def softmax(input, dim=1):
-    transposed_input = input.transpose(dim, len(input.size()) - 1)
-    softmaxed_output = F.softmax(transposed_input.contiguous().view(-1, transposed_input.size(-1)), dim=-1)
-    return softmaxed_output.view(*transposed_input.size()).transpose(dim, len(input.size()) - 1)
-
-
 def augmentation(x, max_shift=2):
     _, _, height, width = x.size()
 
@@ -66,14 +60,12 @@ class CapsuleLayer(nn.Module):
         # return scale * tensor / torch.sqrt(squared_norm)
 
     def forward(self, x):
-        if self.num_route_nodes != -1:#if it's not a primary capsule
-            priors = torch.matmul(x[None, :, :, None, :], self.route_weights[:, None, :, :, :])  # adds 2 dimensions and performs matrix multiplication
-
-            logits = Variable(torch.zeros(*priors.size())).cuda()
+        if self.num_route_nodes != -1:  # if it's not a primary capsule
+            priors = torch.einsum('ijk,ajkb->aijb', [x, self.route_weights])  # batch matrix multiplication
+            logits = torch.autograd.Variable(torch.zeros(*priors.size())).cuda()
             for i in range(self.num_iterations):
-                probs = softmax(logits, dim=2)
+                probs = F.softmax(logits, dim=2)
                 outputs = self.squash((probs * priors).sum(dim=2, keepdim=True))
-
                 if i != self.num_iterations - 1:
                     delta_logits = (priors * outputs).sum(dim=-1, keepdim=True)
                     logits = logits + delta_logits
@@ -115,7 +107,7 @@ class CapsuleNet(nn.Module):
         if y is None:
             # In all batches, get the most active capsule.
             _, max_length_indices = classes.max(dim=1)
-            y = Variable(torch.eye(NUM_CLASSES)).cuda().index_select(dim=0, index=max_length_indices.data)
+            y = torch.autograd.Variable(torch.eye(NUM_CLASSES)).cuda().index_select(dim=0, index=max_length_indices.data)
 
         reconstructions = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
 
